@@ -48,12 +48,14 @@ interface GameStore {
   mpRoom: SanitizedRoomView | null;
   mpSecretToken: string | null;
   mpError: string | null;
+  mpInviteCode: string | null;
 
   // Lifecycle & navigation
   hydrateFromStorage: () => void;
   setScreen: (screen: ScreenMode) => void;
   setActiveModal: (modal: 'none' | 'rules' | 'settings' | 'multiplayer') => void;
   updateConfig: (partial: Partial<GameConfig>) => void;
+  setMpInviteCode: (code: string | null) => void;
 
   // Game actions
   startNewGame: (overrideConfig?: Partial<GameConfig>) => void;
@@ -87,6 +89,7 @@ interface GameStore {
   // Multiplayer actions
   createMultiplayerRoom: (playerName: string, maxPlayers: 2 | 3 | 4) => Promise<string | null>;
   joinMultiplayerRoom: (roomCode: string, playerName: string) => Promise<boolean>;
+  renameMultiplayerPlayer: (playerName: string) => Promise<boolean>;
   startMultiplayerGame: () => Promise<void>;
   refreshMultiplayerRoom: (roomCode?: string) => Promise<void>;
   leaveMultiplayerRoom: () => void;
@@ -269,6 +272,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   mpRoom: null,
   mpSecretToken: null,
   mpError: null,
+  mpInviteCode: null,
 
   hydrateFromStorage: () => {
     const savedConfig = loadConfigFromLocalStorage();
@@ -284,6 +288,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setScreen: (screen) => set({ screen }),
 
   setActiveModal: (activeModal) => set({ activeModal }),
+
+  setMpInviteCode: (mpInviteCode) => set({ mpInviteCode }),
 
   updateConfig: (partial) => {
     const nextConfig = { ...get().config, ...partial };
@@ -801,6 +807,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const roomCode = rawCode.trim().toUpperCase();
     set({ mpError: null });
     const existingToken = getSavedPlayerToken(roomCode);
+    if (typeof window !== 'undefined' && playerName && playerName !== '受邀玩家') {
+      try {
+        window.localStorage.setItem('atelier_rummikub_mp_name_v2', playerName.trim());
+      } catch {}
+    }
 
     try {
       const checkRes = await fetch('/api/rooms');
@@ -826,6 +837,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         set({
           mpRoom: data.room,
           mpSecretToken: data.secretToken,
+          mpInviteCode: null,
           gameState: gs,
           screen: data.room.status === 'waiting' ? 'multiplayer' : 'game',
           activeModal: 'none',
@@ -888,10 +900,76 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({
       mpRoom: view,
       mpSecretToken: secretToken,
+      mpInviteCode: null,
       screen: 'multiplayer',
       activeModal: 'none',
     });
     return true;
+  },
+
+  renameMultiplayerPlayer: async (rawName) => {
+    const cleanName = rawName.trim().slice(0, 20);
+    if (!cleanName) return false;
+    const { mpRoom, mpSecretToken } = get();
+    if (!mpRoom || !mpSecretToken) return false;
+
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem('atelier_rummikub_mp_name_v2', cleanName);
+      } catch {}
+    }
+
+    if (mpRoom.transportMode === 'local-broadcast') {
+      const map = getLocalRoomMap();
+      const record = map[mpRoom.roomCode];
+      if (!record) return false;
+      const res = applyAuthoritativeRoomAction({
+        room: record,
+        secretToken: mpSecretToken,
+        expectedVersion: mpRoom.version,
+        action: { type: 'rename_player', playerName: cleanName },
+      });
+      if (!res.ok) {
+        set({ mpError: res.error ?? '修改昵称失败' });
+        return false;
+      }
+      saveLocalRoomRecord(res.room);
+      const view = sanitizeRoomForViewer(res.room, mpSecretToken, 'local-broadcast');
+      set({
+        mpRoom: view,
+        gameState: buildWorkingGameStateFromRoomView(view) ?? get().gameState,
+      });
+      return true;
+    } else {
+      try {
+        const res = await fetch('/api/rooms', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            op: 'action',
+            roomCode: mpRoom.roomCode,
+            secretToken: mpSecretToken,
+            expectedVersion: mpRoom.version,
+            action: { type: 'rename_player', playerName: cleanName },
+          }),
+        });
+        const data = await res.json();
+        if (data.error) {
+          set({ mpError: data.error });
+          return false;
+        }
+        if (data.room) {
+          set({
+            mpRoom: data.room,
+            gameState: buildWorkingGameStateFromRoomView(data.room) ?? get().gameState,
+          });
+          return true;
+        }
+      } catch {
+        set({ mpError: '网络请求失败，请稍后重试' });
+      }
+      return false;
+    }
   },
 
   startMultiplayerGame: async () => {

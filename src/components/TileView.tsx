@@ -89,17 +89,17 @@ export const TileView: React.FC<TileViewProps> = ({
 
   const dimensions =
     size === 'sm'
-      ? 'w-10 h-14 rounded-lg'
+      ? 'w-9 h-[50px] sm:w-10 sm:h-14 rounded-lg p-1 sm:p-1.5'
       : size === 'lg'
-      ? 'w-14 h-20 rounded-xl'
-      : 'w-12 h-[68px] sm:w-[52px] sm:h-[74px] rounded-xl';
+      ? 'w-14 h-20 rounded-xl p-1.5'
+      : 'w-[38px] h-[54px] sm:w-[52px] sm:h-[74px] rounded-lg sm:rounded-xl p-1 sm:p-1.5';
 
   const numberSize =
     size === 'sm'
-      ? 'text-lg'
+      ? 'text-base sm:text-lg'
       : size === 'lg'
       ? 'text-2xl'
-      : 'text-xl sm:text-2xl';
+      : 'text-lg sm:text-2xl';
 
   return (
     <button
@@ -114,18 +114,18 @@ export const TileView: React.FC<TileViewProps> = ({
       {...(draggableId && !disabled ? listeners : {})}
       {...(draggableId && !disabled ? attributes : {})}
       className={[
-        'group relative select-none flex flex-col items-center justify-between p-1.5 transition-all duration-150',
+        'group relative select-none touch-manipulation flex flex-col items-center justify-between transition-all duration-150',
         'bg-gradient-to-b from-[#FFFDF9] via-[#F7F4EB] to-[#EAE3D2]',
         'border border-[#DED6C1]',
         dimensions,
         isDragging ? 'opacity-40 scale-105 shadow-tile-dragging cursor-grabbing' : '',
         !isDragging && isSelected
-          ? '-translate-y-2.5 ring-2 ring-[#D4AF37] shadow-tile-selected'
+          ? '-translate-y-1.5 sm:-translate-y-2.5 ring-2 ring-[#D4AF37] shadow-tile-selected'
           : !isDragging
-          ? 'shadow-tile hover:-translate-y-1'
+          ? 'shadow-tile sm:hover:-translate-y-1'
           : '',
         isRecent && !isSelected
-          ? 'ring-2 ring-sky-400 shadow-[0_0_14px_rgba(56,189,248,0.55)] -translate-y-1'
+          ? 'ring-2 ring-sky-400 shadow-[0_0_12px_rgba(56,189,248,0.55)] -translate-y-0.5 sm:-translate-y-1'
           : '',
         disabled && !onClick ? 'cursor-default' : 'cursor-grab active:cursor-grabbing',
       ]
@@ -141,20 +141,20 @@ export const TileView: React.FC<TileViewProps> = ({
     >
       {/* Top micro row: color pip + turn indicator */}
       <div className="w-full flex items-center justify-between px-0.5 leading-none">
-        <span className={`text-[9px] font-bold opacity-75 ${colorMeta.text}`}>
+        <span className={`text-[8px] sm:text-[9px] font-bold opacity-75 ${colorMeta.text}`}>
           {tile.isJoker ? '★' : colorMeta.pip}
         </span>
         {isFromHandThisTurn ? (
           <span
             title="本回合你从手牌打出的牌（可退回手牌）"
-            className="px-1 py-0.2 rounded bg-emerald-600 text-white text-[8px] font-bold leading-none"
+            className="px-1 py-0.2 rounded bg-emerald-600 text-white text-[7px] sm:text-[8px] font-bold leading-none"
           >
             本回
           </span>
         ) : isRecent ? (
           <span
             title={recentActorLabel ? `${recentActorLabel} 刚刚打出或摸入的牌` : '最新变动的牌'}
-            className="px-1 py-0.2 rounded bg-sky-600 text-white text-[8px] font-bold leading-none"
+            className="px-1 py-0.2 rounded bg-sky-600 text-white text-[7px] sm:text-[8px] font-bold leading-none"
           >
             新牌
           </span>
@@ -165,16 +165,16 @@ export const TileView: React.FC<TileViewProps> = ({
       <div className="flex-1 flex flex-col items-center justify-center -mt-0.5">
         {tile.isJoker ? (
           <div className="flex flex-col items-center justify-center">
-            <Sparkles className={`w-5 h-5 sm:w-6 sm:h-6 ${colorMeta.text}`} />
+            <Sparkles className={`w-4 h-4 sm:w-6 sm:h-6 ${colorMeta.text}`} />
             {jokerAssignment ? (
               <span
-                className={`mt-0.5 px-1 py-0.2 text-[10px] font-extrabold rounded border leading-tight tabular-nums ${colorMeta.badgeBg}`}
+                className={`mt-0.5 px-1 py-0.2 text-[8px] sm:text-[10px] font-extrabold rounded border leading-tight tabular-nums ${colorMeta.badgeBg}`}
               >
                 ={jokerAssignment.representedNumber}
               </span>
             ) : (
               <span
-                className={`text-[9px] font-black tracking-tighter uppercase mt-0.5 ${colorMeta.text}`}
+                className={`text-[8px] sm:text-[9px] font-black tracking-tighter uppercase mt-0.5 ${colorMeta.text}`}
               >
                 JOKER
               </span>
@@ -193,7 +193,7 @@ export const TileView: React.FC<TileViewProps> = ({
       </div>
 
       {/* Bottom Rummikub recessed circular dimple */}
-      <div className="w-3.5 h-3.5 rounded-full bg-gradient-to-b from-[#DFD8C5] to-[#FBF9F2] shadow-inner border border-[#D4CCB8]/70 mb-0.5" />
+      <div className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 rounded-full bg-gradient-to-b from-[#DFD8C5] to-[#FBF9F2] shadow-inner border border-[#D4CCB8]/70 mb-0.5" />
     </button>
   );
 };

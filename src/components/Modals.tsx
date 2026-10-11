@@ -494,8 +494,10 @@ export const SettlementModal: React.FC<SettlementModalProps> = ({
 interface MultiplayerLobbyViewProps {
   mpRoom: SanitizedRoomView | null;
   mpError: string | null;
+  inviteCode?: string | null;
   onCreateRoom: (playerName: string, maxPlayers: 2 | 3 | 4) => Promise<string | null>;
   onJoinRoom: (roomCode: string, playerName: string) => Promise<boolean>;
+  onRenamePlayer: (playerName: string) => Promise<boolean>;
   onStartRoomGame: () => Promise<void>;
   onLeaveRoom: () => void;
 }
@@ -503,15 +505,42 @@ interface MultiplayerLobbyViewProps {
 export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
   mpRoom,
   mpError,
+  inviteCode,
   onCreateRoom,
   onJoinRoom,
+  onRenamePlayer,
   onStartRoomGame,
   onLeaveRoom,
 }) => {
   const [playerName, setPlayerName] = useState('旅行者');
-  const [joinCode, setJoinCode] = useState('');
+  const [joinCode, setJoinCode] = useState(inviteCode ?? '');
   const [maxPlayers, setMaxPlayers] = useState<2 | 3 | 4>(2);
   const [copied, setCopied] = useState(false);
+  const [renameInput, setRenameInput] = useState('');
+  const [renameSaved, setRenameSaved] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedName = window.localStorage.getItem('atelier_rummikub_mp_name_v2');
+      if (savedName && savedName.trim()) {
+        setPlayerName(savedName.trim());
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (inviteCode) {
+      setJoinCode(inviteCode.toUpperCase());
+    }
+  }, [inviteCode]);
+
+  const mySeat = mpRoom?.seats.find((s) => s.playerId === mpRoom.myPlayerId);
+
+  useEffect(() => {
+    if (mySeat?.playerName) {
+      setRenameInput(mySeat.playerName);
+    }
+  }, [mySeat?.playerName]);
 
   const shareUrl =
     typeof window !== 'undefined' && mpRoom
@@ -525,19 +554,28 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleSaveRename = async () => {
+    if (!renameInput.trim()) return;
+    const ok = await onRenamePlayer(renameInput.trim());
+    if (ok) {
+      setRenameSaved(true);
+      setTimeout(() => setRenameSaved(false), 2000);
+    }
+  };
+
   return (
     <div
-      className="min-h-screen w-full bg-[#08120F] text-stone-100 flex items-center justify-center p-4"
+      className="min-h-[100dvh] w-full bg-[#08120F] text-stone-100 flex items-center justify-center p-3 sm:p-4"
       data-testid="multiplayer-lobby"
     >
-      <div className="w-full max-w-xl bg-[#0F1E19] border border-[#C8A464]/35 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
-        <div className="flex items-center justify-between border-b border-white/10 pb-4">
+      <div className="w-full max-w-xl bg-[#0F1E19] border border-[#C8A464]/35 rounded-3xl p-4 sm:p-8 shadow-2xl space-y-5 sm:space-y-6">
+        <div className="flex items-center justify-between border-b border-white/10 pb-3.5 sm:pb-4">
           <div className="flex items-center gap-2.5">
-            <Users className="w-6 h-6 text-[#D4AF37]" />
+            <Users className="w-6 h-6 text-[#D4AF37] shrink-0" />
             <div>
-              <h1 className="text-xl font-bold">在线多人房间对战</h1>
-              <p className="text-xs text-stone-400">
-                服务端权威规则判定 · 隐藏其他玩家手牌 · 支持断线重连
+              <h1 className="text-lg sm:text-xl font-bold">在线多人房间对战</h1>
+              <p className="text-[11px] sm:text-xs text-stone-400">
+                服务端权威规则判定 · 隐藏其他玩家手牌 · 支持随时改名与重连
               </p>
             </div>
           </div>
@@ -545,7 +583,7 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
             type="button"
             onClick={onLeaveRoom}
             data-testid="btn-leave-mp"
-            className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs text-stone-300"
+            className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs text-stone-300 shrink-0"
           >
             返回大厅
           </button>
@@ -558,24 +596,74 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
         )}
 
         {!mpRoom ? (
-          <div className="space-y-6">
+          <div className="space-y-5">
+            {inviteCode && (
+              <div
+                data-testid="invite-detected-banner"
+                className="p-4 rounded-2xl bg-gradient-to-r from-[#D4AF37]/20 to-emerald-950/60 border border-[#D4AF37]/50 space-y-2"
+              >
+                <div className="text-xs sm:text-sm font-bold text-[#E6C65A]">
+                  🎉 你收到了房间【{inviteCode}】的对战邀请！
+                </div>
+                <p className="text-xs text-stone-300">
+                  请先在下方设置你的专属玩家昵称，然后点击「加入房间」即可入座。
+                </p>
+              </div>
+            )}
+
             <div>
               <label className="block text-xs font-semibold text-stone-300 mb-1.5">
-                你的玩家昵称
+                你的玩家昵称（入座前后均可自定义）
               </label>
               <input
                 type="text"
                 value={playerName}
                 onChange={(e) => setPlayerName(e.target.value)}
                 data-testid="input-mp-name"
-                className="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/15 text-stone-100 text-sm focus:outline-none focus:border-[#D4AF37]"
-                placeholder="输入昵称"
+                maxLength={20}
+                className="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-[#D4AF37]/40 text-stone-100 text-sm focus:outline-none focus:border-[#D4AF37]"
+                placeholder="输入你想展示的玩家昵称"
               />
             </div>
 
             <div className="grid sm:grid-cols-2 gap-4">
+              {/* Join Room Box (highlighted first if invited) */}
+              <div
+                className={[
+                  'p-4 rounded-2xl border space-y-3',
+                  inviteCode
+                    ? 'bg-[#D4AF37]/10 border-[#D4AF37] sm:order-2'
+                    : 'bg-black/30 border-white/10 sm:order-2',
+                ].join(' ')}
+              >
+                <h2 className="font-bold text-[#E6C65A] text-sm">通过邀请码加入</h2>
+                <input
+                  type="text"
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                  data-testid="input-join-code"
+                  placeholder="输入 6 位房间码"
+                  maxLength={6}
+                  className="w-full px-3 py-2 rounded-xl bg-black/50 border border-white/15 text-stone-100 text-sm uppercase tracking-widest font-mono"
+                />
+                <button
+                  type="button"
+                  data-testid="btn-join-room"
+                  onClick={() => onJoinRoom(joinCode, playerName || '受邀玩家')}
+                  disabled={joinCode.trim().length < 4}
+                  className={[
+                    'w-full py-2.5 rounded-xl font-bold text-sm disabled:opacity-40 transition-colors',
+                    inviteCode
+                      ? 'bg-[#D4AF37] hover:bg-[#E6C65A] text-obsidian shadow-lg'
+                      : 'bg-stone-800 hover:bg-stone-700 text-stone-100 border border-stone-600',
+                  ].join(' ')}
+                >
+                  {inviteCode ? `以「${playerName || '受邀玩家'}」加入房间` : '加入房间'}
+                </button>
+              </div>
+
               {/* Create Room Box */}
-              <div className="p-4 rounded-2xl bg-black/30 border border-white/10 space-y-3">
+              <div className="p-4 rounded-2xl bg-black/30 border border-white/10 space-y-3 sm:order-1">
                 <h2 className="font-bold text-[#E6C65A] text-sm">创建新房间</h2>
                 <div className="flex items-center gap-1.5">
                   {([2, 3, 4] as const).map((cnt) => (
@@ -597,39 +685,16 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
                 <button
                   type="button"
                   data-testid="btn-create-room"
-                  onClick={() => onCreateRoom(playerName, maxPlayers)}
+                  onClick={() => onCreateRoom(playerName || '房主', maxPlayers)}
                   className="w-full py-2.5 rounded-xl bg-[#D4AF37] hover:bg-[#E6C65A] text-obsidian font-bold text-sm"
                 >
                   立即创建房间
                 </button>
               </div>
-
-              {/* Join Room Box */}
-              <div className="p-4 rounded-2xl bg-black/30 border border-white/10 space-y-3">
-                <h2 className="font-bold text-[#E6C65A] text-sm">通过邀请码加入</h2>
-                <input
-                  type="text"
-                  value={joinCode}
-                  onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                  data-testid="input-join-code"
-                  placeholder="输入 6 位房间码"
-                  maxLength={6}
-                  className="w-full px-3 py-2 rounded-xl bg-black/50 border border-white/15 text-stone-100 text-sm uppercase tracking-widest font-mono"
-                />
-                <button
-                  type="button"
-                  data-testid="btn-join-room"
-                  onClick={() => onJoinRoom(joinCode, playerName)}
-                  disabled={joinCode.trim().length < 4}
-                  className="w-full py-2.5 rounded-xl bg-stone-800 hover:bg-stone-700 disabled:opacity-40 text-stone-100 border border-stone-600 font-bold text-sm"
-                >
-                  加入房间
-                </button>
-              </div>
             </div>
           </div>
         ) : (
-          <div className="space-y-5">
+          <div className="space-y-4 sm:space-y-5">
             <div className="p-4 rounded-2xl bg-black/40 border border-[#D4AF37]/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div>
                 <div className="text-xs text-stone-400">当前房间邀请码</div>
@@ -651,7 +716,7 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
                 type="button"
                 onClick={handleCopyInvite}
                 data-testid="btn-copy-invite"
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-semibold text-stone-100"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-semibold text-stone-100"
               >
                 {copied ? (
                   <>
@@ -667,30 +732,62 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
               </button>
             </div>
 
+            {/* Inline Self-Nickname Editor inside Room */}
+            <div className="p-3.5 rounded-2xl bg-black/35 border border-white/10 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+              <div className="text-xs text-stone-300 font-semibold shrink-0">
+                我的房间昵称：
+              </div>
+              <div className="flex items-center gap-2 flex-1">
+                <input
+                  type="text"
+                  value={renameInput}
+                  onChange={(e) => setRenameInput(e.target.value)}
+                  data-testid="input-mp-rename"
+                  maxLength={20}
+                  placeholder="输入新昵称"
+                  className="flex-1 px-3 py-1.5 rounded-xl bg-black/50 border border-white/15 text-stone-100 text-xs sm:text-sm focus:outline-none focus:border-[#D4AF37]"
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveRename}
+                  data-testid="btn-mp-rename"
+                  className="px-3.5 py-1.5 rounded-xl bg-[#D4AF37] hover:bg-[#E6C65A] text-obsidian font-bold text-xs shrink-0 transition-colors"
+                >
+                  {renameSaved ? '✓ 已保存' : '修改昵称'}
+                </button>
+              </div>
+            </div>
+
             {/* Seats List */}
             <div className="space-y-2">
               <div className="text-xs font-semibold text-stone-300">
                 房间座位（{mpRoom.seats.length} / {mpRoom.maxPlayers}，空缺座位开局自动由 AI 补位）
               </div>
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {Array.from({ length: mpRoom.maxPlayers }, (_, idx) => {
                   const seat = mpRoom.seats[idx];
+                  const isMe = seat && seat.playerId === mpRoom.myPlayerId;
                   return (
                     <div
                       key={idx}
-                      className="p-3 rounded-xl bg-black/30 border border-white/10 flex items-center gap-2.5"
+                      className={[
+                        'p-3 rounded-xl border flex items-center gap-2.5',
+                        isMe
+                          ? 'bg-[#D4AF37]/15 border-[#D4AF37]/60'
+                          : 'bg-black/30 border-white/10',
+                      ].join(' ')}
                     >
-                      <div className="w-8 h-8 rounded-lg bg-[#D4AF37]/20 text-[#E6C65A] flex items-center justify-center font-bold text-xs">
+                      <div className="w-8 h-8 rounded-lg bg-[#D4AF37]/20 text-[#E6C65A] flex items-center justify-center font-bold text-xs shrink-0">
                         #{idx + 1}
                       </div>
-                      <div>
-                        <div className="text-sm font-bold text-stone-100">
+                      <div className="min-w-0">
+                        <div className="text-sm font-bold text-stone-100 truncate">
                           {seat ? seat.playerName : '等待玩家加入 / AI 补位'}
                         </div>
                         <div className="text-[11px] text-stone-400">
                           {seat
-                            ? seat.playerId === mpRoom.myPlayerId
-                              ? '● 你自己（已就绪）'
+                            ? isMe
+                              ? '● 你自己（可在上方修改昵称）'
                               : '● 在线玩家'
                             : '空位'}
                         </div>
@@ -711,8 +808,8 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
                 开始多人对局（空位由 AI 自动补齐）
               </button>
             ) : (
-              <div className="text-center py-3 text-xs text-[#E6C65A]">
-                等待房主开始对局…
+              <div className="text-center py-3 text-xs text-[#E6C65A] font-medium">
+                已就绪！等待房主开始对局…
               </div>
             )}
           </div>

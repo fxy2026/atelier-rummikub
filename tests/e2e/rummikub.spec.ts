@@ -275,6 +275,11 @@ test.describe('Atelier Rummikub End-to-End Browser Verification', () => {
     const codeText = await roomCodeEl.textContent();
     expect(codeText?.trim().length).toBe(6);
 
+    // Test renaming player inside the room lobby
+    await page.getByTestId('input-mp-rename').fill('曜石大宗师');
+    await page.getByTestId('btn-mp-rename').click();
+    await expect(page.getByText('曜石大宗师')).toBeVisible();
+
     await page.getByTestId('btn-mp-start-game').click();
     await expect(page.getByTestId('game-board')).toBeVisible();
     await expect(page.getByTestId('rack-tile-count')).toContainText('14 张');

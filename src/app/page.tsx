@@ -44,14 +44,17 @@ export default function HomePage() {
     activeModal,
     mpRoom,
     mpError,
+    mpInviteCode,
     hydrateFromStorage,
     setScreen,
     setActiveModal,
     updateConfig,
+    setMpInviteCode,
     startNewGame,
     resumeSavedGame,
     createMultiplayerRoom,
     joinMultiplayerRoom,
+    renameMultiplayerPlayer,
     startMultiplayerGame,
     refreshMultiplayerRoom,
     leaveMultiplayerRoom,
@@ -67,9 +70,27 @@ export default function HomePage() {
     const params = new URLSearchParams(window.location.search);
     const roomParam = params.get('room');
     if (roomParam && roomParam.trim().length >= 4) {
-      joinMultiplayerRoom(roomParam.trim().toUpperCase(), '受邀玩家');
+      const code = roomParam.trim().toUpperCase();
+      // Check if we already have a reconnect token for this room
+      let hasToken = false;
+      let savedName = '受邀玩家';
+      try {
+        const rawTokens = window.localStorage.getItem('atelier_rummikub_mp_tokens_v2');
+        const tokenMap = rawTokens ? JSON.parse(rawTokens) : {};
+        if (tokenMap[code]) hasToken = true;
+        const storedName = window.localStorage.getItem('atelier_rummikub_mp_name_v2');
+        if (storedName && storedName.trim()) savedName = storedName.trim();
+      } catch {}
+
+      if (hasToken) {
+        joinMultiplayerRoom(code, savedName);
+      } else {
+        // Open multiplayer lobby with invite code pre-filled so guest can set their own name first
+        setMpInviteCode(code);
+        setScreen('multiplayer');
+      }
     }
-  }, [hydrated, joinMultiplayerRoom]);
+  }, [hydrated, joinMultiplayerRoom, setMpInviteCode, setScreen]);
 
   // Listen for Cross-Tab BroadcastChannel room updates while in multiplayer waiting lobby
   useEffect(() => {
@@ -112,8 +133,10 @@ export default function HomePage() {
       <MultiplayerLobbyView
         mpRoom={mpRoom}
         mpError={mpError}
+        inviteCode={mpInviteCode}
         onCreateRoom={createMultiplayerRoom}
         onJoinRoom={joinMultiplayerRoom}
+        onRenamePlayer={renameMultiplayerPlayer}
         onStartRoomGame={startMultiplayerGame}
         onLeaveRoom={leaveMultiplayerRoom}
       />
@@ -167,22 +190,22 @@ export default function HomePage() {
       </nav>
 
       {/* Center Hero & Match Configuration */}
-      <div className="max-w-6xl w-full mx-auto my-auto py-8 grid lg:grid-cols-12 gap-8 items-center">
+      <div className="max-w-6xl w-full mx-auto my-auto py-4 sm:py-8 grid lg:grid-cols-12 gap-5 sm:gap-8 items-center">
         {/* Left Column: Brand Thesis & Tactile Tile Specimen */}
-        <div className="lg:col-span-7 space-y-6">
+        <div className="lg:col-span-7 space-y-4 sm:space-y-6 order-2 lg:order-1">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/30 text-[#E6C65A] text-xs font-semibold">
             <Sparkles className="w-3.5 h-3.5" />
             <span>106 张标准实体牌规则 · 严谨破冰与桌面重组引擎</span>
           </div>
 
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight text-stone-100 leading-[1.1]">
+          <h1 className="text-2xl sm:text-5xl lg:text-6xl font-black tracking-tight text-stone-100 leading-[1.15] sm:leading-[1.1]">
             指尖上的数字博弈，
             <span className="block text-transparent bg-clip-text bg-gradient-to-r from-[#E6C65A] via-[#D4AF37] to-[#F3E3A3] mt-1">
               重塑经典拉密桌游体验
             </span>
           </h1>
 
-          <p className="text-sm sm:text-base text-stone-300 max-w-xl leading-relaxed">
+          <p className="text-xs sm:text-base text-stone-300 max-w-xl leading-relaxed">
             集齐同数异色的<strong>「数字组」</strong>与同色连续的<strong>「顺子」</strong>。在完成首次
             30 分破冰后，自由拆分、挪移与重组桌面上的每一张牌，率先清空手牌架即可获胜。
           </p>
@@ -261,9 +284,9 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Right Column: Quick Start Card */}
-        <div className="lg:col-span-5">
-          <div className="p-6 sm:p-7 rounded-3xl bg-[#0D1C17]/95 border border-[#C8A464]/35 shadow-2xl space-y-5">
+        {/* Right Column: Quick Start Card (first on mobile so phone users can start immediately) */}
+        <div className="lg:col-span-5 order-1 lg:order-2">
+          <div className="p-5 sm:p-7 rounded-3xl bg-[#0D1C17]/95 border border-[#C8A464]/35 shadow-2xl space-y-4 sm:space-y-5">
             <div>
               <h2 className="text-xl font-bold text-stone-100">开始拉密对局</h2>
               <p className="text-xs text-stone-400 mt-0.5">

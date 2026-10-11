@@ -257,6 +257,15 @@ export async function POST(req: NextRequest) {
     if (existingSeat) {
       existingSeat.connected = true;
       existingSeat.lastSeenAt = Date.now();
+      if (playerName && playerName !== '受邀玩家' && playerName !== '玩家') {
+        existingSeat.playerName = playerName;
+        if (room.gameState) {
+          room.gameState.players = room.gameState.players.map((p) =>
+            p.id === existingSeat.playerId ? { ...p, name: playerName } : p
+          );
+        }
+        room.version += 1;
+      }
       await saveCloudRoom(room);
 
       return NextResponse.json({
@@ -334,7 +343,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const saveRes = await saveCloudRoom(res.room, previousVersion);
+    const isRename = body.action?.type === 'rename_player';
+    const saveRes = await saveCloudRoom(
+      res.room,
+      isRename ? undefined : previousVersion
+    );
     if (!saveRes.ok) {
       return NextResponse.json(
         { error: saveRes.error || '并发写入冲突，请刷新状态' },

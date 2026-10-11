@@ -206,7 +206,7 @@ export const GameBoard: React.FC = () => {
       onDragEnd={handleDragEnd}
     >
       <div
-        className="h-screen w-full overflow-hidden flex flex-col bg-obsidian text-stone-100 select-none"
+        className="h-[100dvh] w-full overflow-hidden flex flex-col bg-obsidian text-stone-100 select-none"
         data-testid="game-board"
       >
         {/* Top Information Bar */}

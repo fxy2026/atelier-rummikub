@@ -1,10 +1,19 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
   title: '曜石拉密 · Atelier Rummikub | 经典数字组合桌游',
   description:
     '高完成度拉密（Rummikub）网页版桌游，支持 2-4 人单机 AI 对战、本地存档恢复与在线房间联机。',
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: 'cover',
+  themeColor: '#0A1310',
 };
 
 export default function RootLayout({
@@ -14,7 +23,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN">
-      <body className="antialiased bg-obsidian text-stone-100 min-h-screen">
+      <body className="antialiased bg-obsidian text-stone-100 min-h-[100dvh]">
         {children}
       </body>
     </html>

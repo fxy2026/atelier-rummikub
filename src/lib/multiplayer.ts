@@ -159,10 +159,46 @@ export function applyAuthoritativeRoomAction(params: {
   expectedVersion: number;
   action:
     | { type: 'start_game'; fillAiDifficulty?: 'easy' | 'hard' }
+    | { type: 'rename_player'; playerName: string }
     | { type: 'commit_turn'; proposedHand: Tile[]; proposedTable: Meld[] }
     | { type: 'draw_tile' };
 }): { room: RoomRecord; ok: boolean; error?: string } {
   const { room, secretToken, expectedVersion, action } = params;
+
+  const actorSeat = room.seats.find((s) => s.secretToken === secretToken);
+  if (!actorSeat) {
+    return { room, ok: false, error: '无效的玩家身份凭证，无法执行操作' };
+  }
+
+  // Action 0: Rename player (allowed in waiting lobby or active game)
+  if (action.type === 'rename_player') {
+    const cleanName = String(action.playerName || '').trim().slice(0, 20);
+    if (!cleanName) {
+      return { room, ok: false, error: '昵称不能为空' };
+    }
+    const updatedSeats = room.seats.map((s) =>
+      s.playerId === actorSeat.playerId ? { ...s, playerName: cleanName } : s
+    );
+    const updatedGameState = room.gameState
+      ? {
+          ...room.gameState,
+          players: room.gameState.players.map((p) =>
+            p.id === actorSeat.playerId ? { ...p, name: cleanName } : p
+          ),
+        }
+      : null;
+
+    return {
+      room: {
+        ...room,
+        seats: updatedSeats,
+        gameState: updatedGameState,
+        version: room.version + 1,
+        updatedAt: Date.now(),
+      },
+      ok: true,
+    };
+  }
 
   if (room.version !== expectedVersion) {
     return {
@@ -170,11 +206,6 @@ export function applyAuthoritativeRoomAction(params: {
       ok: false,
       error: '房间状态已更新（检测到并发或重复提交），已为你同步最新桌面状态',
     };
-  }
-
-  const actorSeat = room.seats.find((s) => s.secretToken === secretToken);
-  if (!actorSeat) {
-    return { room, ok: false, error: '无效的玩家身份凭证，无法执行操作' };
   }
 
   // Action 1: Host starts the game
