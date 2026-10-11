@@ -38,6 +38,7 @@ export const GameBoard: React.FC = () => {
     moveTileOrSelectionToMeld,
     returnTileOrSelectionToHand,
     splitMeld,
+    normalizeMeldById,
     sortHand,
     undoStep,
     resetTurn,
@@ -242,6 +243,7 @@ export const GameBoard: React.FC = () => {
             moveTileOrSelectionToMeld(selectedTileIds, meldId, targetIndex)
           }
           onSplitMeld={splitMeld}
+          onNormalizeMeld={normalizeMeldById}
         />
 
         {/* Bottom Player Hand Rack */}
@@ -256,6 +258,7 @@ export const GameBoard: React.FC = () => {
           onToggleSelectTile={toggleSelectTile}
           onClearSelection={clearSelection}
           onPlaySelectedToNewMeld={playSelectedToNewMeld}
+          onPlayCandidateMeld={(tileIds) => playTilesByIdsToNewMeld(tileIds)}
           onReturnSelectedToHand={() =>
             returnTileOrSelectionToHand(selectedTileIds)
           }

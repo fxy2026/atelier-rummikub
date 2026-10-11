@@ -1,10 +1,12 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   AlertTriangle,
   BookOpen,
   Bot,
+  Check,
+  Copy,
   Home,
   Layers,
   Loader2,
@@ -45,8 +47,17 @@ export const TopHud: React.FC<TopHudProps> = ({
   onOpenSettings,
   onClearError,
 }) => {
+  const [copiedRoom, setCopiedRoom] = useState(false);
   const activePlayer = gameState.players[gameState.currentPlayerIndex];
   const latestLog = gameState.history[0] ?? null;
+
+  const handleCopyRoomLink = () => {
+    if (!mpRoom || typeof window === 'undefined') return;
+    const shareUrl = `${window.location.origin}${window.location.pathname}?room=${mpRoom.roomCode}`;
+    navigator.clipboard?.writeText(shareUrl).catch(() => {});
+    setCopiedRoom(true);
+    setTimeout(() => setCopiedRoom(false), 2000);
+  };
 
   return (
     <header className="w-full bg-[#0A1310]/95 border-b border-[#C8A464]/25 px-2.5 sm:px-6 py-1.5 sm:py-2.5 flex flex-col gap-1.5 sm:gap-2 z-20 shrink-0">
@@ -73,10 +84,25 @@ export const TopHud: React.FC<TopHudProps> = ({
               第 {gameState.turnNumber} 回
             </span>
             {mpRoom && (
-              <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs px-1.5 sm:px-2.5 py-0.5 rounded-md bg-sky-500/20 text-sky-200 border border-sky-400/40 font-bold">
-                <Users className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                {mpRoom.roomCode}
-              </span>
+              <button
+                type="button"
+                onClick={handleCopyRoomLink}
+                title="点击复制房间邀请链接"
+                className="inline-flex items-center gap-1 text-[10px] sm:text-xs px-1.5 sm:px-2.5 py-0.5 rounded-md bg-sky-500/20 hover:bg-sky-500/30 text-sky-200 border border-sky-400/40 font-bold transition-colors"
+              >
+                {copiedRoom ? (
+                  <>
+                    <Check className="w-3 h-3 text-emerald-400" />
+                    <span>已复制链接</span>
+                  </>
+                ) : (
+                  <>
+                    <Users className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                    <span>{mpRoom.roomCode}</span>
+                    <Copy className="w-2.5 h-2.5 opacity-75" />
+                  </>
+                )}
+              </button>
             )}
           </div>
         </div>

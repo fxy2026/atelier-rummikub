@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import {
   ArrowDownLeft,
@@ -9,9 +9,22 @@ import {
   PlusCircle,
   Sparkles,
   X,
+  Zap,
 } from 'lucide-react';
-import { Tile, validateMeld } from '@/engine';
+import {
+  generateCandidateMeldsFromTiles,
+  Tile,
+  TileColor,
+  validateMeld,
+} from '@/engine';
 import { TileView } from './TileView';
+
+const COLOR_PIP: Record<TileColor, { pip: string; cls: string }> = {
+  red: { pip: '♦', cls: 'text-[#FF6B5E]' },
+  blue: { pip: '♠', cls: 'text-[#60A5FA]' },
+  yellow: { pip: '●', cls: 'text-[#FBBF24]' },
+  black: { pip: '♣', cls: 'text-stone-300' },
+};
 
 interface PlayerRackProps {
   hand: Tile[];
@@ -24,6 +37,7 @@ interface PlayerRackProps {
   onToggleSelectTile: (tileId: string) => void;
   onClearSelection: () => void;
   onPlaySelectedToNewMeld: () => void;
+  onPlayCandidateMeld: (tileIds: string[]) => void;
   onReturnSelectedToHand: () => void;
   onSortHand: (mode: 'color' | 'number') => void;
 }
@@ -39,6 +53,7 @@ export const PlayerRack: React.FC<PlayerRackProps> = ({
   onToggleSelectTile,
   onClearSelection,
   onPlaySelectedToNewMeld,
+  onPlayCandidateMeld,
   onReturnSelectedToHand,
   onSortHand,
 }) => {
@@ -49,7 +64,7 @@ export const PlayerRack: React.FC<PlayerRackProps> = ({
     },
   });
 
-  const handIdSet = new Set(hand.map((t) => t.id));
+  const handIdSet = useMemo(() => new Set(hand.map((t) => t.id)), [hand]);
   const selectedTiles = selectedTileIds
     .map((id) => allTilesById.get(id))
     .filter((t): t is Tile => Boolean(t));
@@ -61,6 +76,30 @@ export const PlayerRack: React.FC<PlayerRackProps> = ({
   const canReturnSelectedToRack =
     selectedTileIds.length > 0 &&
     selectedTileIds.some((id) => !handIdSet.has(id) && turnStartHandIds.has(id));
+
+  // Detect up to 4 distinct ready-to-play melds in hand so player can play a full meld in 1 tap
+  const readyCandidateMelds = useMemo(() => {
+    if (!isMyTurn || hand.length < 3) return [];
+    const raw = generateCandidateMeldsFromTiles(hand);
+    const unique: { key: string; tiles: Tile[]; score: number }[] = [];
+    const seen = new Set<string>();
+
+    for (const c of raw) {
+      // Create a signature by tile colors+numbers so we don't show 4 overlapping sub-runs of the same set
+      const sig = c.tiles
+        .map((t) => (t.isJoker ? 'J' : `${t.color[0]}${t.number}`))
+        .join('-');
+      if (seen.has(sig)) continue;
+      seen.add(sig);
+      unique.push({
+        key: c.tiles.map((t) => t.id).join(','),
+        tiles: c.tiles,
+        score: c.score,
+      });
+      if (unique.length >= 4) break;
+    }
+    return unique;
+  }, [hand, isMyTurn]);
 
   return (
     <div
@@ -170,6 +209,46 @@ export const PlayerRack: React.FC<PlayerRackProps> = ({
             </div>
           )}
         </div>
+
+        {/* One-Tap Ready Meld Quick-Play Chips (huge mobile & desktop ergonomics boost) */}
+        {isMyTurn && selectedTileIds.length === 0 && readyCandidateMelds.length > 0 && (
+          <div
+            data-testid="quick-meld-chips"
+            className="flex items-center gap-1.5 overflow-x-auto py-0.5 text-[11px] shrink-0"
+          >
+            <span className="inline-flex items-center gap-1 text-[#E6C65A] font-bold shrink-0">
+              <Zap className="w-3 h-3 fill-current" />
+              <span>成组快打：</span>
+            </span>
+            {readyCandidateMelds.map((cand, idx) => (
+              <button
+                key={cand.key}
+                type="button"
+                data-testid={`btn-quick-meld-${idx}`}
+                onClick={() => onPlayCandidateMeld(cand.tiles.map((t) => t.id))}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-950/80 hover:bg-emerald-900/90 border border-emerald-400/40 text-stone-100 font-semibold shrink-0 transition-all active:scale-95"
+                title="点击直接将这组牌放到桌面"
+              >
+                <span className="inline-flex items-center gap-0.5">
+                  {cand.tiles.map((t) => {
+                    const meta = COLOR_PIP[t.color];
+                    return (
+                      <span
+                        key={t.id}
+                        className={`font-black tabular-nums ${meta.cls}`}
+                      >
+                        {t.isJoker ? '★J' : `${meta.pip}${t.number}`}
+                      </span>
+                    );
+                  })}
+                </span>
+                <span className="text-[10px] text-emerald-300 ml-0.5">
+                  ({cand.score}分)
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Sculpted Wooden / Obsidian Tile Rack Slot */}
         <div className="relative min-h-[64px] sm:min-h-[86px] max-h-[126px] sm:max-h-none overflow-y-auto rounded-xl sm:rounded-2xl bg-[#090807] border border-[#C8A464]/20 px-2 sm:px-3 py-1.5 sm:py-2.5 shadow-inner flex items-center">

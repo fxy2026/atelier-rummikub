@@ -70,6 +70,7 @@ export interface TurnHistoryLog {
 }
 
 export interface GameConfig {
+  playerName?: string;
   aiCount: 1 | 2 | 3;
   aiDifficulty: AIDifficulty;
   soundEnabled: boolean;

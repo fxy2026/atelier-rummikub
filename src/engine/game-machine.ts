@@ -58,7 +58,11 @@ export function createInitialGameState(
 
     players.push({
       id: isHuman && i === 0 ? 'player-human' : `player-${i + 1}`,
-      name: custom ? custom.name : isHuman ? '你（玩家）' : AI_NAMES[i - 1] ?? `AI #${i}`,
+      name: custom
+        ? custom.name
+        : isHuman
+        ? config.playerName?.trim() || '你（玩家）'
+        : AI_NAMES[i - 1] ?? `AI #${i}`,
       type: isHuman ? 'human' : 'ai',
       aiDifficulty: isHuman ? undefined : config.aiDifficulty,
       hand: sortedHand,

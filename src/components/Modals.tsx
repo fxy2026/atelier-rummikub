@@ -141,6 +141,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onStartNewWithConfig,
   onClose,
 }) => {
+  const [playerName, setPlayerName] = useState<string>(
+    config.playerName ?? '你（玩家）'
+  );
   const [aiCount, setAiCount] = useState<1 | 2 | 3>(config.aiCount);
   const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>(config.aiDifficulty);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(config.soundEnabled);
@@ -149,12 +152,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   );
 
   const handleSaveOnly = () => {
-    onUpdateConfig({ aiCount, aiDifficulty, soundEnabled, autoSortRack });
+    onUpdateConfig({
+      playerName: playerName.trim() || '你（玩家）',
+      aiCount,
+      aiDifficulty,
+      soundEnabled,
+      autoSortRack,
+    });
     onClose();
   };
 
   const handleApplyAndRestart = () => {
-    onStartNewWithConfig({ aiCount, aiDifficulty, soundEnabled, autoSortRack });
+    onStartNewWithConfig({
+      playerName: playerName.trim() || '你（玩家）',
+      aiCount,
+      aiDifficulty,
+      soundEnabled,
+      autoSortRack,
+    });
     onClose();
   };
 
@@ -163,8 +178,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
       data-testid="modal-settings"
     >
-      <div className="w-full max-w-lg bg-[#0F1B17] border border-[#C8A464]/35 rounded-3xl shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-black/30">
+      <div className="w-full max-w-lg max-h-[90vh] bg-[#0F1B17] border border-[#C8A464]/35 rounded-3xl shadow-2xl flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-black/30 shrink-0">
           <div className="flex items-center gap-2.5">
             <Settings className="w-5 h-5 text-[#D4AF37]" />
             <h2 className="text-lg font-bold text-stone-100">对局设置与偏好</h2>
@@ -179,7 +194,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
 
-        <div className="p-6 space-y-5 text-sm">
+        <div className="p-6 overflow-y-auto space-y-5 text-sm">
+          {/* Player Nickname */}
+          <div className="space-y-1.5">
+            <label className="block font-semibold text-stone-200">
+              你的玩家昵称
+            </label>
+            <input
+              type="text"
+              value={playerName}
+              onChange={(e) => setPlayerName(e.target.value)}
+              data-testid="setting-player-name"
+              maxLength={20}
+              placeholder="输入你的玩家昵称"
+              className="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/15 text-stone-100 text-sm focus:outline-none focus:border-[#D4AF37]"
+            />
+          </div>
+
           {/* AI Count */}
           <div className="space-y-2">
             <label className="block font-semibold text-stone-200">

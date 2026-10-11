@@ -296,10 +296,27 @@ export const useGameStore = create<GameStore>((set, get) => ({
     soundFX.setEnabled(nextConfig.soundEnabled);
     saveConfigToLocalStorage(nextConfig);
 
+    // If user customized playerName in settings, also sync to multiplayer room or local single-player game
+    if (partial.playerName && partial.playerName.trim()) {
+      const cleanName = partial.playerName.trim().slice(0, 20);
+      if (get().mpRoom) {
+        get().renameMultiplayerPlayer(cleanName);
+      }
+    }
+
     const currentGs = get().gameState;
     if (currentGs) {
+      const updatedPlayers =
+        partial.playerName && partial.playerName.trim() && !get().mpRoom
+          ? currentGs.players.map((p, idx) =>
+              idx === 0 && p.type === 'human'
+                ? { ...p, name: partial.playerName!.trim().slice(0, 20) }
+                : p
+            )
+          : currentGs.players;
       const updatedGs = {
         ...currentGs,
+        players: updatedPlayers,
         config: nextConfig,
       };
       saveGameToLocalStorage(updatedGs);
