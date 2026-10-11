@@ -2,7 +2,10 @@
 
 一款高完成度、可直接部署至 Vercel 的现代网页版 **拉密（Rummikub）** 数字组合桌游。采用 **Next.js (App Router) + React 19 + TypeScript + Tailwind CSS + Zustand + dnd-kit** 构建，核心规则引擎与 UI 完全解耦，支持单机 AI 对战、自动本地存档恢复以及可选在线多人房间对战。
 
-## 一键部署至 Vercel
+## 在线试玩与一键部署至 Vercel
+
+- **已部署线上试玩地址**：[https://gemini4test.vercel.app](https://gemini4test.vercel.app)
+- **GitHub 源码仓库**：[https://github.com/fxy2026/atelier-rummikub](https://github.com/fxy2026/atelier-rummikub)
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Ffxy2026%2Fatelier-rummikub)
 
