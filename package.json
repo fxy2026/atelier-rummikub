@@ -1,0 +1,48 @@
+{
+  "name": "atelier-rummikub",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A production-grade Rummikub web game built with Next.js, TypeScript, Tailwind CSS, Zustand, and Framer Motion.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint src tests",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@supabase/supabase-js": "^2.49.1",
+    "canvas-confetti": "^1.9.3",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.4.7",
+    "lucide-react": "^0.475.0",
+    "next": "^15.2.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^3.0.2",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.0",
+    "@playwright/test": "^1.50.1",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.2.0",
+    "@types/canvas-confetti": "^1.9.0",
+    "@types/node": "^22.13.5",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.21.0",
+    "eslint-config-next": "^15.2.0",
+    "jsdom": "^26.0.0",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.7"
+  }
+}
