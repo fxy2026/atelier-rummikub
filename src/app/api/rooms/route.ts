@@ -6,12 +6,57 @@ import {
   sanitizeRoomForViewer,
 } from '@/lib/multiplayer';
 
+const ROOM_TTL_SECONDS = 60 * 60 * 24; // 24 hours
+
 /**
- * Optional Cloud Multiplayer API Route backed by Supabase Postgres (`rummikub_rooms` table).
- * IMPORTANT: Does NOT rely on serverless in-memory state. If Supabase env vars are not configured,
- * returns `cloudConfigured: false` so the frontend uses the local Cross-Tab BroadcastChannel mode
- * or informs the user how to configure Supabase.
+ * Cloud Storage Adapter for Authoritative Multiplayer Rooms.
+ * Supports:
+ * 1. Upstash Redis KV (`KV_REST_API_URL` + `KV_REST_API_TOKEN`) — Provisioned on Vercel!
+ * 2. Supabase Postgres (`NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`)
  */
+function hasUpstashKV(): boolean {
+  return Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
+}
+
+async function kvGetRoom(roomCode: string): Promise<RoomRecord | null> {
+  const url = process.env.KV_REST_API_URL;
+  const token = process.env.KV_REST_API_TOKEN;
+  if (!url || !token) return null;
+
+  const res = await fetch(`${url}/get/rummikub:room:${roomCode}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { result?: string | null };
+  if (!data.result) return null;
+  try {
+    return JSON.parse(data.result) as RoomRecord;
+  } catch {
+    return null;
+  }
+}
+
+async function kvSetRoom(room: RoomRecord): Promise<boolean> {
+  const url = process.env.KV_REST_API_URL;
+  const token = process.env.KV_REST_API_TOKEN;
+  if (!url || !token) return false;
+
+  const res = await fetch(
+    `${url}/set/rummikub:room:${room.roomCode}?EX=${ROOM_TTL_SECONDS}`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'text/plain',
+      },
+      body: JSON.stringify(room),
+      cache: 'no-store',
+    }
+  );
+  return res.ok;
+}
+
 function getSupabaseServerClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
@@ -20,6 +65,71 @@ function getSupabaseServerClient() {
   return createClient(url, key, {
     auth: { persistSession: false },
   });
+}
+
+async function loadCloudRoom(roomCode: string): Promise<RoomRecord | null> {
+  if (hasUpstashKV()) {
+    return kvGetRoom(roomCode);
+  }
+  const supabase = getSupabaseServerClient();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('rummikub_rooms')
+      .select('payload')
+      .eq('room_code', roomCode)
+      .single();
+    if (error || !data) return null;
+    return data.payload as RoomRecord;
+  }
+  return null;
+}
+
+async function saveCloudRoom(
+  room: RoomRecord,
+  expectedPreviousVersion?: number
+): Promise<{ ok: boolean; conflict?: boolean; error?: string }> {
+  if (hasUpstashKV()) {
+    if (expectedPreviousVersion !== undefined) {
+      const latest = await kvGetRoom(room.roomCode);
+      if (latest && latest.version !== expectedPreviousVersion) {
+        return { ok: false, conflict: true, error: '并发写入冲突，请重试' };
+      }
+    }
+    const saved = await kvSetRoom(room);
+    return saved ? { ok: true } : { ok: false, error: '写入云端 Redis 失败' };
+  }
+
+  const supabase = getSupabaseServerClient();
+  if (supabase) {
+    if (expectedPreviousVersion === undefined) {
+      const { error } = await supabase.from('rummikub_rooms').insert({
+        room_code: room.roomCode,
+        version: room.version,
+        payload: room,
+        updated_at: new Date().toISOString(),
+      });
+      if (error) return { ok: false, error: error.message };
+      return { ok: true };
+    } else {
+      const { error } = await supabase
+        .from('rummikub_rooms')
+        .update({
+          version: room.version,
+          payload: room,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('room_code', room.roomCode)
+        .eq('version', expectedPreviousVersion);
+      if (error) return { ok: false, conflict: true, error: error.message };
+      return { ok: true };
+    }
+  }
+
+  return { ok: false, error: '未配置云端存储' };
+}
+
+function isCloudConfigured(): boolean {
+  return hasUpstashKV() || Boolean(getSupabaseServerClient());
 }
 
 function generateRoomCode(): string {
@@ -32,37 +142,33 @@ function generateRoomCode(): string {
 }
 
 export async function GET(req: NextRequest) {
-  const supabase = getSupabaseServerClient();
+  const cloudReady = isCloudConfigured();
   const { searchParams } = new URL(req.url);
   const roomCode = searchParams.get('code')?.toUpperCase();
   const secretToken = req.headers.get('x-player-token');
 
-  if (!supabase) {
+  if (!cloudReady) {
     return NextResponse.json({
       cloudConfigured: false,
-      message:
-        '未检测到 NEXT_PUBLIC_SUPABASE_URL 环境变量，已自动启用同机多标签页实时联机模式。',
+      message: '未检测到云端存储环境变量，已自动启用同机多窗口联机模式。',
     });
   }
 
   if (!roomCode) {
-    return NextResponse.json({ cloudConfigured: true });
+    return NextResponse.json({
+      cloudConfigured: true,
+      provider: hasUpstashKV() ? 'upstash-redis' : 'supabase',
+    });
   }
 
-  const { data, error } = await supabase
-    .from('rummikub_rooms')
-    .select('payload')
-    .eq('room_code', roomCode)
-    .single();
-
-  if (error || !data) {
+  const room = await loadCloudRoom(roomCode);
+  if (!room) {
     return NextResponse.json(
       { cloudConfigured: true, error: '未找到对应的房间号' },
       { status: 404 }
     );
   }
 
-  const room = data.payload as RoomRecord;
   return NextResponse.json({
     cloudConfigured: true,
     room: sanitizeRoomForViewer(room, secretToken, 'supabase-cloud'),
@@ -70,12 +176,11 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const supabase = getSupabaseServerClient();
-  if (!supabase) {
+  if (!isCloudConfigured()) {
     return NextResponse.json(
       {
         cloudConfigured: false,
-        error: '云端数据库未配置，请使用本地多窗口联机或配置 Supabase 环境变量',
+        error: '云端数据库未配置，请使用本地多窗口联机或配置云端环境变量',
       },
       { status: 501 }
     );
@@ -85,8 +190,11 @@ export async function POST(req: NextRequest) {
   const { op } = body;
 
   if (op === 'create') {
-    const playerName = (body.playerName || '房主').slice(0, 20);
-    const maxPlayers = ([2, 3, 4].includes(body.maxPlayers) ? body.maxPlayers : 4) as 2 | 3 | 4;
+    const playerName = String(body.playerName || '房主').slice(0, 20);
+    const maxPlayers = ([2, 3, 4].includes(body.maxPlayers) ? body.maxPlayers : 4) as
+      | 2
+      | 3
+      | 4;
     const roomCode = generateRoomCode();
     const playerId = `mp-p1-${Date.now().toString(36)}`;
     const secretToken = `tok-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
@@ -113,15 +221,12 @@ export async function POST(req: NextRequest) {
       updatedAt: Date.now(),
     };
 
-    const { error } = await supabase.from('rummikub_rooms').insert({
-      room_code: roomCode,
-      version: 1,
-      payload: newRoom,
-      updated_at: new Date().toISOString(),
-    });
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    const saveRes = await saveCloudRoom(newRoom);
+    if (!saveRes.ok) {
+      return NextResponse.json(
+        { error: saveRes.error || '创建房间失败' },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
@@ -137,17 +242,12 @@ export async function POST(req: NextRequest) {
     const playerName = String(body.playerName || '玩家').slice(0, 20);
     const existingToken = body.secretToken as string | undefined;
 
-    const { data, error } = await supabase
-      .from('rummikub_rooms')
-      .select('payload, version')
-      .eq('room_code', roomCode)
-      .single();
-
-    if (error || !data) {
+    const room = await loadCloudRoom(roomCode);
+    if (!room) {
       return NextResponse.json({ error: '房间不存在或已过期' }, { status: 404 });
     }
 
-    const room = data.payload as RoomRecord;
+    const previousVersion = room.version;
 
     // Check if reconnecting with existing secretToken
     const existingSeat = existingToken
@@ -157,10 +257,7 @@ export async function POST(req: NextRequest) {
     if (existingSeat) {
       existingSeat.connected = true;
       existingSeat.lastSeenAt = Date.now();
-      await supabase
-        .from('rummikub_rooms')
-        .update({ payload: room, updated_at: new Date().toISOString() })
-        .eq('room_code', roomCode);
+      await saveCloudRoom(room);
 
       return NextResponse.json({
         cloudConfigured: true,
@@ -193,18 +290,12 @@ export async function POST(req: NextRequest) {
     room.version += 1;
     room.updatedAt = Date.now();
 
-    const { error: updateErr } = await supabase
-      .from('rummikub_rooms')
-      .update({
-        version: room.version,
-        payload: room,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('room_code', roomCode)
-      .eq('version', data.version);
-
-    if (updateErr) {
-      return NextResponse.json({ error: '加入房间并发冲突，请重试' }, { status: 409 });
+    const saveRes = await saveCloudRoom(room, previousVersion);
+    if (!saveRes.ok) {
+      return NextResponse.json(
+        { error: saveRes.error || '加入房间并发冲突，请重试' },
+        { status: 409 }
+      );
     }
 
     return NextResponse.json({
@@ -220,17 +311,12 @@ export async function POST(req: NextRequest) {
     const secretToken = String(body.secretToken || '');
     const expectedVersion = Number(body.expectedVersion);
 
-    const { data, error } = await supabase
-      .from('rummikub_rooms')
-      .select('payload, version')
-      .eq('room_code', roomCode)
-      .single();
-
-    if (error || !data) {
+    const room = await loadCloudRoom(roomCode);
+    if (!room) {
       return NextResponse.json({ error: '房间不存在' }, { status: 404 });
     }
 
-    const room = data.payload as RoomRecord;
+    const previousVersion = room.version;
     const res = applyAuthoritativeRoomAction({
       room,
       secretToken,
@@ -248,18 +334,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { error: updateErr } = await supabase
-      .from('rummikub_rooms')
-      .update({
-        version: res.room.version,
-        payload: res.room,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('room_code', roomCode)
-      .eq('version', data.version);
-
-    if (updateErr) {
-      return NextResponse.json({ error: '并发写入冲突，请刷新状态' }, { status: 409 });
+    const saveRes = await saveCloudRoom(res.room, previousVersion);
+    if (!saveRes.ok) {
+      return NextResponse.json(
+        { error: saveRes.error || '并发写入冲突，请刷新状态' },
+        { status: 409 }
+      );
     }
 
     return NextResponse.json({

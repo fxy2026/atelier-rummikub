@@ -639,11 +639,11 @@ export const MultiplayerLobbyView: React.FC<MultiplayerLobbyViewProps> = ({
                 >
                   {mpRoom.roomCode}
                 </div>
-                <div className="text-[11px] text-stone-400 mt-0.5">
+                <div className="text-[11px] text-emerald-300 mt-0.5 font-semibold">
                   通道模式：
                   {mpRoom.transportMode === 'supabase-cloud'
-                    ? 'Supabase 云端实时同步'
-                    : '同机多窗口 BroadcastChannel 实时同步'}
+                    ? '☁️ 云端实时同步（支持跨手机/电脑异地联机）'
+                    : '💻 同机多窗口 BroadcastChannel 实时同步'}
                 </div>
               </div>
 

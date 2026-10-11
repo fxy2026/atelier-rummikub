@@ -6,11 +6,12 @@ import {
   AlertCircle,
   ArrowDownToLine,
   CheckCircle2,
+  History,
   PlusCircle,
   Scissors,
   Sparkles,
 } from 'lucide-react';
-import { Meld, validateMeld } from '@/engine';
+import { Meld, TurnHistoryLog, validateMeld } from '@/engine';
 import { TileView } from './TileView';
 
 interface MeldTrayProps {
@@ -20,6 +21,7 @@ interface MeldTrayProps {
   selectedTileIds: string[];
   turnStartHandIds: Set<string>;
   recentTileIds: Set<string>;
+  lastActorName?: string;
   onToggleSelectTile: (tileId: string) => void;
   onMoveSelectedToMeld: (meldId: string, targetIndex?: number) => void;
   onSplitMeld: (meldId: string, splitIndex: number) => void;
@@ -32,6 +34,7 @@ const MeldTray: React.FC<MeldTrayProps> = ({
   selectedTileIds,
   turnStartHandIds,
   recentTileIds,
+  lastActorName,
   onToggleSelectTile,
   onMoveSelectedToMeld,
   onSplitMeld,
@@ -46,6 +49,7 @@ const MeldTray: React.FC<MeldTrayProps> = ({
 
   const validation = validateMeld(meld.tiles);
   const hasSelection = isMyTurn && selectedTileIds.length > 0;
+  const hasRecentTile = meld.tiles.some((t) => recentTileIds.has(t.id));
 
   return (
     <div
@@ -54,17 +58,19 @@ const MeldTray: React.FC<MeldTrayProps> = ({
       data-meld-id={meld.id}
       data-meld-valid={validation.isValid ? 'true' : 'false'}
       className={[
-        'relative flex flex-col gap-1.5 p-2.5 sm:p-3 rounded-2xl border transition-all duration-150 shadow-tray',
+        'relative flex flex-col gap-1.5 p-2.5 sm:p-3 rounded-2xl border transition-all duration-200 shadow-tray',
         isOver
           ? 'bg-[#D4AF37]/20 border-[#D4AF37] scale-[1.02]'
+          : hasRecentTile && validation.isValid
+          ? 'bg-sky-950/40 border-sky-400/70 shadow-[0_0_20px_rgba(56,189,248,0.22)]'
           : validation.isValid
           ? 'bg-[#091511]/85 border-emerald-500/30 hover:border-emerald-400/50'
           : 'bg-red-950/35 border-amber-500/60',
       ].join(' ')}
     >
-      {/* Meld Header: Status Badge + Quick Insert / Split Controls */}
-      <div className="flex items-center justify-between gap-2 text-[11px]">
-        <div className="flex items-center gap-1.5">
+      {/* Meld Header: Status Badge + Recent Actor Badge + Quick InsertControls */}
+      <div className="flex items-center justify-between gap-2 text-[11px] flex-wrap">
+        <div className="flex items-center gap-1.5 flex-wrap">
           {validation.isValid ? (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold tabular-nums">
               <CheckCircle2 className="w-3 h-3" />
@@ -77,6 +83,15 @@ const MeldTray: React.FC<MeldTrayProps> = ({
             >
               <AlertCircle className="w-3 h-3 text-amber-400" />
               {validation.errorReason ?? '组合未完成'}
+            </span>
+          )}
+
+          {hasRecentTile && lastActorName && (
+            <span
+              data-testid={`meld-recent-actor-${index}`}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-500/25 text-sky-200 border border-sky-400/50 font-bold"
+            >
+              ✨ {lastActorName} 刚出
             </span>
           )}
         </div>
@@ -130,6 +145,7 @@ const MeldTray: React.FC<MeldTrayProps> = ({
                 isSelected={isSelected}
                 isFromHandThisTurn={isFromHand}
                 isRecent={isRecent}
+                recentActorLabel={lastActorName}
                 jokerAssignment={jokerAssignment}
                 onClick={() => {
                   if (!isMyTurn) return;
@@ -150,6 +166,8 @@ interface TableAreaProps {
   selectedTileIds: string[];
   turnStartHandIds: Set<string>;
   recentTileIds: Set<string>;
+  lastActorName?: string;
+  recentHistory: TurnHistoryLog[];
   onToggleSelectTile: (tileId: string) => void;
   onPlaySelectedToNewMeld: () => void;
   onMoveSelectedToMeld: (meldId: string, targetIndex?: number) => void;
@@ -162,6 +180,8 @@ export const TableArea: React.FC<TableAreaProps> = ({
   selectedTileIds,
   turnStartHandIds,
   recentTileIds,
+  lastActorName,
+  recentHistory,
   onToggleSelectTile,
   onPlaySelectedToNewMeld,
   onMoveSelectedToMeld,
@@ -181,7 +201,7 @@ export const TableArea: React.FC<TableAreaProps> = ({
       ref={setNodeRef}
       data-testid="table-area"
       className={[
-        'relative flex-1 w-full overflow-y-auto px-3 sm:px-6 py-4 transition-colors duration-200',
+        'relative flex-1 w-full overflow-y-auto px-3 sm:px-6 py-3 sm:py-4 transition-colors duration-200',
         'bg-[radial-gradient(ellipse_at_center,_#163229_0%,_#0D1F19_65%,_#081410_100%)]',
         isOver ? 'ring-2 ring-inset ring-[#D4AF37]/70' : '',
       ].join(' ')}
@@ -190,9 +210,47 @@ export const TableArea: React.FC<TableAreaProps> = ({
       <div className="pointer-events-none absolute inset-3 rounded-3xl border border-[#C8A464]/15" />
 
       <div className="relative z-10 max-w-7xl mx-auto min-h-full flex flex-col justify-between gap-4">
+        {/* Top Live Turn Action Feed Bar */}
+        {recentHistory.length > 0 && (
+          <div
+            data-testid="turn-history-strip"
+            className="flex items-center gap-2 overflow-x-auto py-1.5 px-3 rounded-2xl bg-black/40 border border-white/10 text-xs"
+          >
+            <span className="inline-flex items-center gap-1 text-stone-400 font-semibold shrink-0">
+              <History className="w-3.5 h-3.5 text-[#D4AF37]" />
+              出牌记录：
+            </span>
+            {recentHistory.slice(0, 5).map((item, idx) => (
+              <span
+                key={item.id}
+                className={[
+                  'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border shrink-0 transition-all',
+                  idx === 0
+                    ? item.action === 'play'
+                      ? 'bg-sky-500/20 border-sky-400/50 text-sky-100 font-bold'
+                      : 'bg-amber-500/20 border-amber-400/50 text-amber-100 font-bold'
+                    : 'bg-white/5 border-white/10 text-stone-300',
+                ].join(' ')}
+              >
+                <span className="opacity-70 text-[10px]">#{item.turnNumber}</span>
+                <span>{item.playerName}</span>
+                <span>
+                  {item.action === 'play'
+                    ? `打出 ${item.tilesPlayedCount} 张${
+                        item.brokeIce ? ' (破冰)' : ''
+                      }`
+                    : item.action === 'draw'
+                    ? '摸牌 1 张'
+                    : '跳过'}
+                </span>
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Active Melds Grid */}
         {melds.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-center py-10 px-4">
+          <div className="flex-1 flex flex-col items-center justify-center text-center py-8 px-4">
             <div className="w-14 h-14 rounded-2xl bg-[#D4AF37]/10 border border-[#D4AF37]/30 flex items-center justify-center mb-3">
               <Sparkles className="w-7 h-7 text-[#D4AF37]" />
             </div>
@@ -217,7 +275,7 @@ export const TableArea: React.FC<TableAreaProps> = ({
         ) : (
           <div
             data-testid="table-melds-grid"
-            className="flex flex-wrap items-start gap-3 sm:gap-4"
+            className="flex flex-wrap items-start gap-3 sm:gap-4 my-auto"
           >
             {melds.map((meld, idx) => (
               <MeldTray
@@ -228,6 +286,7 @@ export const TableArea: React.FC<TableAreaProps> = ({
                 selectedTileIds={selectedTileIds}
                 turnStartHandIds={turnStartHandIds}
                 recentTileIds={recentTileIds}
+                lastActorName={lastActorName}
                 onToggleSelectTile={onToggleSelectTile}
                 onMoveSelectedToMeld={onMoveSelectedToMeld}
                 onSplitMeld={onSplitMeld}

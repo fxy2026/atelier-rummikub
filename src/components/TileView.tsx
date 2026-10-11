@@ -49,6 +49,7 @@ export interface TileViewProps {
   isSelected?: boolean;
   isFromHandThisTurn?: boolean;
   isRecent?: boolean;
+  recentActorLabel?: string;
   jokerAssignment?: JokerAssignment;
   size?: 'sm' | 'md' | 'lg';
   onClick?: (e: React.MouseEvent) => void;
@@ -62,6 +63,7 @@ export const TileView: React.FC<TileViewProps> = ({
   isSelected = false,
   isFromHandThisTurn = false,
   isRecent = false,
+  recentActorLabel,
   jokerAssignment,
   size = 'md',
   onClick,
@@ -122,7 +124,9 @@ export const TileView: React.FC<TileViewProps> = ({
           : !isDragging
           ? 'shadow-tile hover:-translate-y-1'
           : '',
-        isRecent && !isSelected ? 'ring-2 ring-emerald-400/80' : '',
+        isRecent && !isSelected
+          ? 'ring-2 ring-sky-400 shadow-[0_0_14px_rgba(56,189,248,0.55)] -translate-y-1'
+          : '',
         disabled && !onClick ? 'cursor-default' : 'cursor-grab active:cursor-grabbing',
       ]
         .filter(Boolean)
@@ -140,12 +144,21 @@ export const TileView: React.FC<TileViewProps> = ({
         <span className={`text-[9px] font-bold opacity-75 ${colorMeta.text}`}>
           {tile.isJoker ? '★' : colorMeta.pip}
         </span>
-        {isFromHandThisTurn && (
+        {isFromHandThisTurn ? (
           <span
-            title="本回合从手牌打出（可随时退回手牌）"
-            className="w-2 h-2 rounded-full bg-emerald-500 shadow-sm"
-          />
-        )}
+            title="本回合你从手牌打出的牌（可退回手牌）"
+            className="px-1 py-0.2 rounded bg-emerald-600 text-white text-[8px] font-bold leading-none"
+          >
+            本回
+          </span>
+        ) : isRecent ? (
+          <span
+            title={recentActorLabel ? `${recentActorLabel} 刚刚打出或摸入的牌` : '最新变动的牌'}
+            className="px-1 py-0.2 rounded bg-sky-600 text-white text-[8px] font-bold leading-none"
+          >
+            新牌
+          </span>
+        ) : null}
       </div>
 
       {/* Center Engraved Numeral or Joker Icon */}

@@ -4,7 +4,8 @@
 
 ## 在线试玩与一键部署至 Vercel
 
-- **已部署线上试玩地址**：[https://gemini4test.vercel.app](https://gemini4test.vercel.app)
+- **自定义主域名**：[https://rummi.xpy.me](https://rummi.xpy.me)
+- **Vercel 线上地址**：[https://gemini4test.vercel.app](https://gemini4test.vercel.app)
 - **GitHub 源码仓库**：[https://github.com/fxy2026/atelier-rummikub](https://github.com/fxy2026/atelier-rummikub)
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Ffxy2026%2Fatelier-rummikub)

@@ -66,7 +66,7 @@ export const GameBoard: React.FC = () => {
     })
   );
 
-  // Schedule AI turns automatically in single-player mode
+  // Schedule AI turns automatically in single-player mode with comfortable reading pace (950ms)
   const currentPlayer = gameState?.players[gameState.currentPlayerIndex];
   const isAITurn =
     Boolean(gameState) &&
@@ -78,7 +78,7 @@ export const GameBoard: React.FC = () => {
     if (!isAITurn) return;
     const timer = window.setTimeout(() => {
       stepAITurn();
-    }, 520);
+    }, 950);
     return () => window.clearTimeout(timer);
   }, [isAITurn, gameState?.currentPlayerIndex, gameState?.turnNumber, stepAITurn]);
 
@@ -103,7 +103,7 @@ export const GameBoard: React.FC = () => {
 
     const pollTimer = window.setInterval(() => {
       refreshMultiplayerRoom(mpRoom.roomCode);
-    }, 2500);
+    }, 2000);
 
     return () => {
       if (bc) {
@@ -140,6 +140,11 @@ export const GameBoard: React.FC = () => {
   const recentTileIds = useMemo(() => {
     if (!gameState) return new Set<string>();
     return new Set(gameState.recentTileIds);
+  }, [gameState]);
+
+  const lastActorName = useMemo(() => {
+    if (!gameState || gameState.history.length === 0) return undefined;
+    return gameState.history[0]?.playerName;
   }, [gameState]);
 
   const allTilesById = useMemo(() => {
@@ -185,7 +190,6 @@ export const GameBoard: React.FC = () => {
     }
 
     if (overData?.type === 'new-meld') {
-      // Only create a new meld if dragged from rack or if moving from an existing meld
       playTilesByIdsToNewMeld(tileIdsToMove);
       return;
     }
@@ -208,6 +212,7 @@ export const GameBoard: React.FC = () => {
         {/* Top Information Bar */}
         <TopHud
           gameState={gameState}
+          isMyTurn={isMyTurn}
           isAIThinking={isAITurn}
           mpRoom={mpRoom}
           onGoHome={() => {
@@ -229,6 +234,8 @@ export const GameBoard: React.FC = () => {
           selectedTileIds={selectedTileIds}
           turnStartHandIds={turnStartHandIds}
           recentTileIds={recentTileIds}
+          lastActorName={lastActorName}
+          recentHistory={gameState.history}
           onToggleSelectTile={toggleSelectTile}
           onPlaySelectedToNewMeld={playSelectedToNewMeld}
           onMoveSelectedToMeld={(meldId, targetIndex) =>
