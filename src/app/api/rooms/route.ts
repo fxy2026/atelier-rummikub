@@ -343,10 +343,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const isRename = body.action?.type === 'rename_player';
+    const isNonTurnMutation =
+      body.action?.type === 'rename_player' ||
+      body.action?.type === 'send_message' ||
+      body.action?.type === 'restart_game';
     const saveRes = await saveCloudRoom(
       res.room,
-      isRename ? undefined : previousVersion
+      isNonTurnMutation ? undefined : previousVersion
     );
     if (!saveRes.ok) {
       return NextResponse.json(

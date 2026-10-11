@@ -12,6 +12,17 @@ class SoundManager {
     return this.enabled;
   }
 
+  private vibrate(pattern: number | number[]) {
+    if (!this.enabled || typeof window === 'undefined') return;
+    try {
+      if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        navigator.vibrate(pattern);
+      }
+    } catch {
+      // Ignore on unsupported devices
+    }
+  }
+
   private getContext(): AudioContext | null {
     if (!this.enabled || typeof window === 'undefined') return null;
     if (!this.ctx) {
@@ -30,6 +41,7 @@ class SoundManager {
 
   /** Crisp resin tile click when selecting or picking up a tile */
   public playTileClick() {
+    this.vibrate(8);
     const ctx = this.getContext();
     if (!ctx) return;
     try {
@@ -53,6 +65,7 @@ class SoundManager {
 
   /** Tactile clack when placing a tile onto the table or rack */
   public playTilePlace() {
+    this.vibrate(15);
     const ctx = this.getContext();
     if (!ctx) return;
     try {
@@ -72,8 +85,34 @@ class SoundManager {
     } catch {}
   }
 
+  /** Gentle two-note chime when it becomes the player's turn */
+  public playTurnStart() {
+    this.vibrate([12, 40, 18]);
+    const ctx = this.getContext();
+    if (!ctx) return;
+    try {
+      const notes = [587.33, 880]; // D5 -> A5
+      notes.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const start = ctx.currentTime + idx * 0.075;
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, start);
+
+        gain.gain.setValueAtTime(0.09, start);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.22);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(start);
+        osc.stop(start + 0.23);
+      });
+    } catch {}
+  }
+
   /** Warm ascending chord when committing a valid play */
   public playCommitSuccess(brokeIce: boolean = false) {
+    this.vibrate(brokeIce ? [20, 50, 35] : 22);
     const ctx = this.getContext();
     if (!ctx) return;
     try {
@@ -98,6 +137,7 @@ class SoundManager {
 
   /** Subtle wooden draw sound */
   public playDrawTile() {
+    this.vibrate(12);
     const ctx = this.getContext();
     if (!ctx) return;
     try {
@@ -119,6 +159,7 @@ class SoundManager {
 
   /** Low muted thud for invalid rule feedback */
   public playError() {
+    this.vibrate([30, 40, 30]);
     const ctx = this.getContext();
     if (!ctx) return;
     try {
@@ -140,6 +181,7 @@ class SoundManager {
 
   /** Celebratory chord sequence on game end */
   public playVictory() {
+    this.vibrate([30, 50, 30, 50, 60]);
     const ctx = this.getContext();
     if (!ctx) return;
     try {

@@ -49,6 +49,8 @@ export interface TileViewProps {
   isSelected?: boolean;
   isFromHandThisTurn?: boolean;
   isRecent?: boolean;
+  isHintMoved?: boolean;
+  isInFlight?: boolean;
   recentActorLabel?: string;
   jokerAssignment?: JokerAssignment;
   size?: 'sm' | 'md' | 'lg';
@@ -63,6 +65,8 @@ export const TileView: React.FC<TileViewProps> = ({
   isSelected = false,
   isFromHandThisTurn = false,
   isRecent = false,
+  isHintMoved = false,
+  isInFlight = false,
   recentActorLabel,
   jokerAssignment,
   size = 'md',
@@ -101,6 +105,9 @@ export const TileView: React.FC<TileViewProps> = ({
       ? 'text-2xl'
       : 'text-lg sm:text-2xl';
 
+  const zoneAttr = dragData?.source ? String(dragData.source) : undefined;
+  const meldAttr = dragData?.meldId ? String(dragData.meldId) : undefined;
+
   return (
     <button
       ref={setNodeRef}
@@ -108,6 +115,8 @@ export const TileView: React.FC<TileViewProps> = ({
       style={style}
       data-testid={`tile-${tile.id}`}
       data-tile-id={tile.id}
+      data-tile-zone={zoneAttr}
+      data-tile-meld={meldAttr}
       data-tile-selected={isSelected ? 'true' : 'false'}
       onClick={onClick}
       disabled={disabled && !onClick}
@@ -118,13 +127,17 @@ export const TileView: React.FC<TileViewProps> = ({
         'bg-gradient-to-b from-[#FFFDF9] via-[#F7F4EB] to-[#EAE3D2]',
         'border border-[#DED6C1]',
         dimensions,
+        isInFlight ? 'opacity-20 scale-95' : '',
         isDragging ? 'opacity-40 scale-105 shadow-tile-dragging cursor-grabbing' : '',
         !isDragging && isSelected
           ? '-translate-y-1.5 sm:-translate-y-2.5 ring-2 ring-[#D4AF37] shadow-tile-selected'
           : !isDragging
           ? 'shadow-tile sm:hover:-translate-y-1'
           : '',
-        isRecent && !isSelected
+        !isSelected && isHintMoved
+          ? 'ring-2 ring-amber-400 shadow-[0_0_16px_rgba(251,191,36,0.65)] -translate-y-1'
+          : '',
+        isRecent && !isSelected && !isHintMoved
           ? 'ring-2 ring-sky-400 shadow-[0_0_12px_rgba(56,189,248,0.55)] -translate-y-0.5 sm:-translate-y-1'
           : '',
         disabled && !onClick ? 'cursor-default' : 'cursor-grab active:cursor-grabbing',
@@ -144,7 +157,14 @@ export const TileView: React.FC<TileViewProps> = ({
         <span className={`text-[8px] sm:text-[9px] font-bold opacity-75 ${colorMeta.text}`}>
           {tile.isJoker ? '★' : colorMeta.pip}
         </span>
-        {isFromHandThisTurn ? (
+        {isHintMoved ? (
+          <span
+            title="智能提示刚刚移动或重组的牌"
+            className="px-1 py-0.2 rounded bg-amber-500 text-obsidian text-[7px] sm:text-[8px] font-extrabold leading-none"
+          >
+            提示
+          </span>
+        ) : isFromHandThisTurn ? (
           <span
             title="本回合你从手牌打出的牌（可退回手牌）"
             className="px-1 py-0.2 rounded bg-emerald-600 text-white text-[7px] sm:text-[8px] font-bold leading-none"

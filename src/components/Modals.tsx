@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import confetti from 'canvas-confetti';
 import {
+  BarChart3,
   BookOpen,
   Check,
   Copy,
@@ -22,6 +23,10 @@ import {
   calculateHandPenalty,
   GameConfig,
   GameState,
+  Tile,
+  TileColor,
+  TILE_COLORS,
+  TILE_NUMBERS,
 } from '@/engine';
 import { SanitizedRoomView } from '@/lib/multiplayer';
 import { TileView } from './TileView';
@@ -128,6 +133,236 @@ export const RulesModal: React.FC<RulesModalProps> = ({ onClose }) => {
   );
 };
 
+/**
+ * Strategic 106-Tile Counter / Probability Tracker Modal (`记牌器`)
+ */
+interface TileTrackerModalProps {
+  gameState: GameState;
+  myHand: Tile[];
+  onClose: () => void;
+}
+
+const TRACKER_COLOR_META: Record<
+  TileColor,
+  { name: string; pip: string; headerCls: string; badgeCls: string }
+> = {
+  red: {
+    name: '红色 ♦',
+    pip: '♦',
+    headerCls: 'text-[#FF6B5E]',
+    badgeCls: 'border-[#D92D20]/40 bg-[#D92D20]/15 text-[#FF8A80]',
+  },
+  blue: {
+    name: '蓝色 ♠',
+    pip: '♠',
+    headerCls: 'text-[#60A5FA]',
+    badgeCls: 'border-[#155EEF]/40 bg-[#155EEF]/15 text-[#93C5FD]',
+  },
+  yellow: {
+    name: '黄色 ●',
+    pip: '●',
+    headerCls: 'text-[#FBBF24]',
+    badgeCls: 'border-[#B86E00]/40 bg-[#B86E00]/15 text-[#FCD34D]',
+  },
+  black: {
+    name: '黑色 ♣',
+    pip: '♣',
+    headerCls: 'text-stone-200',
+    badgeCls: 'border-white/25 bg-white/10 text-stone-200',
+  },
+};
+
+export const TileTrackerModal: React.FC<TileTrackerModalProps> = ({
+  gameState,
+  myHand,
+  onClose,
+}) => {
+  const stats = useMemo(() => {
+    const tableCounts = new Map<string, number>();
+    const handCounts = new Map<string, number>();
+    let tableJokers = 0;
+    let handJokers = 0;
+
+    for (const m of gameState.table) {
+      for (const t of m.tiles) {
+        if (t.isJoker) {
+          tableJokers++;
+        } else {
+          const key = `${t.color}-${t.number}`;
+          tableCounts.set(key, (tableCounts.get(key) ?? 0) + 1);
+        }
+      }
+    }
+
+    for (const t of myHand) {
+      if (t.isJoker) {
+        handJokers++;
+      } else {
+        const key = `${t.color}-${t.number}`;
+        handCounts.set(key, (handCounts.get(key) ?? 0) + 1);
+      }
+    }
+
+    const totalTable = gameState.table.reduce((s, m) => s + m.tiles.length, 0);
+    const totalHand = myHand.length;
+    const totalUnseen = Math.max(0, 106 - totalTable - totalHand);
+
+    return {
+      tableCounts,
+      handCounts,
+      tableJokers,
+      handJokers,
+      totalTable,
+      totalHand,
+      totalUnseen,
+    };
+  }, [gameState.table, myHand]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4"
+      data-testid="modal-tracker"
+    >
+      <div className="w-full max-w-3xl max-h-[90vh] bg-[#0F1B17] border border-[#C8A464]/40 rounded-3xl shadow-2xl flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-white/10 bg-black/35 shrink-0">
+          <div className="flex items-center gap-2.5">
+            <BarChart3 className="w-5 h-5 text-[#D4AF37]" />
+            <div>
+              <h2 className="text-base sm:text-lg font-bold text-stone-100">
+                全牌谱记牌器（106 张分布统计）
+              </h2>
+              <p className="text-[11px] text-stone-400">
+                实时统计桌面已出与自己手牌中的牌张，辅助推演关键连接牌概率
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            data-testid="btn-close-tracker"
+            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-stone-300"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-4">
+          {/* Summary Bar */}
+          <div className="grid grid-cols-3 gap-2.5 text-center">
+            <div className="p-2.5 sm:p-3 rounded-2xl bg-emerald-950/50 border border-emerald-500/30">
+              <div className="text-[11px] text-emerald-300">桌面已亮出</div>
+              <div className="text-lg sm:text-xl font-black text-stone-100 tabular-nums">
+                {stats.totalTable} 张
+              </div>
+            </div>
+            <div className="p-2.5 sm:p-3 rounded-2xl bg-amber-950/50 border border-[#D4AF37]/40">
+              <div className="text-[11px] text-[#E6C65A]">我的手牌</div>
+              <div className="text-lg sm:text-xl font-black text-stone-100 tabular-nums">
+                {stats.totalHand} 张
+              </div>
+            </div>
+            <div className="p-2.5 sm:p-3 rounded-2xl bg-black/40 border border-white/10">
+              <div className="text-[11px] text-stone-400">未现（牌池+对手）</div>
+              <div className="text-lg sm:text-xl font-black text-stone-100 tabular-nums">
+                {stats.totalUnseen} 张
+              </div>
+            </div>
+          </div>
+
+          {/* Legend */}
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-stone-300 px-1">
+            <span>每种颜色的数字 1–13 共有 <strong>2 张</strong>：</span>
+            <div className="flex items-center gap-3 text-[11px]">
+              <span className="inline-flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block" />
+                未知尚存 2 张
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" />
+                未知仅剩 1 张
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded-full bg-stone-600 inline-block" />
+                2 张均已现身（0 未知）
+              </span>
+            </div>
+          </div>
+
+          {/* 4 Color Rows x 13 Numbers */}
+          <div className="space-y-3">
+            {TILE_COLORS.map((color) => {
+              const meta = TRACKER_COLOR_META[color];
+              return (
+                <div
+                  key={color}
+                  className="p-3 rounded-2xl bg-black/35 border border-white/10 space-y-2"
+                >
+                  <div className={`text-xs font-bold ${meta.headerCls}`}>
+                    {meta.name}
+                  </div>
+                  <div className="grid grid-cols-7 sm:grid-cols-13 gap-1.5">
+                    {TILE_NUMBERS.map((num) => {
+                      const key = `${color}-${num}`;
+                      const onTable = stats.tableCounts.get(key) ?? 0;
+                      const inHand = stats.handCounts.get(key) ?? 0;
+                      const unseen = Math.max(0, 2 - onTable - inHand);
+
+                      return (
+                        <div
+                          key={num}
+                          className={[
+                            'flex flex-col items-center justify-between p-1.5 rounded-xl border text-center transition-all',
+                            unseen === 0
+                              ? 'bg-black/40 border-white/5 opacity-45'
+                              : unseen === 1
+                              ? 'bg-amber-950/30 border-amber-400/40'
+                              : 'bg-emerald-950/30 border-emerald-400/35',
+                          ].join(' ')}
+                        >
+                          <span className={`text-xs sm:text-sm font-black tabular-nums ${meta.headerCls}`}>
+                            {num}
+                          </span>
+                          <span className="text-[10px] font-bold text-stone-200 tabular-nums mt-0.5">
+                            余{unseen}
+                          </span>
+                          <span className="text-[9px] text-stone-400 leading-tight">
+                            桌{onTable}/手{inHand}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Jokers Row */}
+            <div className="p-3 rounded-2xl bg-black/35 border border-[#D4AF37]/30 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-[#D4AF37]" />
+                <span className="text-xs sm:text-sm font-bold text-[#E6C65A]">
+                  万能牌 Joker（全牌组共 2 张）
+                </span>
+              </div>
+              <div className="flex items-center gap-3 text-xs">
+                <span className="text-emerald-300">
+                  桌面已出：<strong>{stats.tableJokers}</strong>
+                </span>
+                <span className="text-[#E6C65A]">
+                  我的手牌：<strong>{stats.handJokers}</strong>
+                </span>
+                <span className="px-2.5 py-1 rounded-lg bg-[#D4AF37]/20 border border-[#D4AF37]/40 text-[#E6C65A] font-bold">
+                  未现：{Math.max(0, 2 - stats.tableJokers - stats.handJokers)} 张
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 interface SettingsModalProps {
   config: GameConfig;
   onUpdateConfig: (partial: Partial<GameConfig>) => void;
@@ -147,9 +382,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [aiCount, setAiCount] = useState<1 | 2 | 3>(config.aiCount);
   const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>(config.aiDifficulty);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(config.soundEnabled);
-  const [autoSortRack, setAutoSortRack] = useState<'color' | 'number' | 'manual'>(
-    config.autoSortRack
-  );
+  const [autoSortRack, setAutoSortRack] = useState<
+    'color' | 'number' | 'smart' | 'manual'
+  >(config.autoSortRack);
 
   const handleSaveOnly = () => {
     onUpdateConfig({
@@ -279,30 +514,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {/* Default Rack Sort */}
           <div className="space-y-2">
             <label className="block font-semibold text-stone-200">手牌架默认排序</label>
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
                 onClick={() => setAutoSortRack('color')}
                 className={[
-                  'py-2 px-3 rounded-xl border font-medium transition-all',
+                  'py-2 px-2 rounded-xl border text-xs font-medium transition-all',
                   autoSortRack === 'color'
                     ? 'bg-[#D4AF37] text-obsidian border-[#D4AF37] font-bold'
                     : 'bg-black/35 text-stone-300 border-white/10',
                 ].join(' ')}
               >
-                按颜色分组排序
+                按颜色分组
               </button>
               <button
                 type="button"
                 onClick={() => setAutoSortRack('number')}
                 className={[
-                  'py-2 px-3 rounded-xl border font-medium transition-all',
+                  'py-2 px-2 rounded-xl border text-xs font-medium transition-all',
                   autoSortRack === 'number'
                     ? 'bg-[#D4AF37] text-obsidian border-[#D4AF37] font-bold'
                     : 'bg-black/35 text-stone-300 border-white/10',
                 ].join(' ')}
               >
-                按数字大小排序
+                按数字大小
+              </button>
+              <button
+                type="button"
+                onClick={() => setAutoSortRack('smart')}
+                className={[
+                  'py-2 px-2 rounded-xl border text-xs font-medium transition-all',
+                  autoSortRack === 'smart'
+                    ? 'bg-[#D4AF37] text-obsidian border-[#D4AF37] font-bold'
+                    : 'bg-black/35 text-stone-300 border-white/10',
+                ].join(' ')}
+              >
+                智能成组优先
               </button>
             </div>
           </div>
@@ -316,9 +563,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <VolumeX className="w-5 h-5 text-stone-400" />
               )}
               <div>
-                <div className="font-semibold text-stone-200">桌面实体牌音效</div>
+                <div className="font-semibold text-stone-200">桌面实体牌音效与震动</div>
                 <div className="text-xs text-stone-400">
-                  使用 Web Audio 合成清脆落牌与破冰提示音
+                  使用 Web Audio 合成清脆落牌、回合提示音与手机触觉反馈
                 </div>
               </div>
             </div>
@@ -364,12 +611,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
 interface SettlementModalProps {
   gameState: GameState;
+  isMultiplayer?: boolean;
   onPlayAgain: () => void;
   onGoHome: () => void;
 }
 
 export const SettlementModal: React.FC<SettlementModalProps> = ({
   gameState,
+  isMultiplayer = false,
   onPlayAgain,
   onGoHome,
 }) => {
@@ -505,7 +754,7 @@ export const SettlementModal: React.FC<SettlementModalProps> = ({
             data-testid="btn-settlement-home"
             className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-stone-200 font-semibold text-sm"
           >
-            返回主页
+            {isMultiplayer ? '离开房间' : '返回主页'}
           </button>
           <button
             type="button"
@@ -514,7 +763,7 @@ export const SettlementModal: React.FC<SettlementModalProps> = ({
             className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#D4AF37] hover:bg-[#E6C65A] text-obsidian font-bold text-sm shadow-lg"
           >
             <Play className="w-4 h-4 fill-current" />
-            再来一局
+            {isMultiplayer ? '同房再来一局' : '再来一局'}
           </button>
         </div>
       </div>

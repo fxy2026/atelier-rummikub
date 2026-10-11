@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DndContext,
   DragEndEvent,
@@ -11,14 +11,70 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import { Tile } from '@/engine';
+import { Meld, Tile } from '@/engine';
 import { useGameStore } from '@/store/useGameStore';
 import { TopHud } from './TopHud';
 import { TableArea } from './TableArea';
 import { PlayerRack } from './PlayerRack';
 import { ActionBar } from './ActionBar';
 import { TileView } from './TileView';
-import { RulesModal, SettingsModal, SettlementModal } from './Modals';
+import { FlyingTileItem, TileFlightOverlay } from './TileFlightOverlay';
+import {
+  RulesModal,
+  SettingsModal,
+  SettlementModal,
+  TileTrackerModal,
+} from './Modals';
+
+interface CapturedTileRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  zone: 'rack' | 'table';
+  meldId?: string;
+  meldSig?: string;
+}
+
+function captureCurrentDomTileRects(melds?: Meld[]): Map<string, CapturedTileRect> {
+  const map = new Map<string, CapturedTileRect>();
+  if (typeof document === 'undefined') return map;
+
+  const meldSigByTileId = new Map<string, string>();
+  if (melds) {
+    for (const m of melds) {
+      const sig = m.tiles
+        .map((t) => t.id)
+        .sort()
+        .join(',');
+      for (const t of m.tiles) {
+        meldSigByTileId.set(t.id, sig);
+      }
+    }
+  }
+
+  const nodes = document.querySelectorAll<HTMLElement>('[data-tile-id]');
+  nodes.forEach((el) => {
+    const id = el.getAttribute('data-tile-id');
+    if (!id) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) return;
+    const rawZone = el.getAttribute('data-tile-zone');
+    const zone: 'rack' | 'table' = rawZone === 'rack' ? 'rack' : 'table';
+    const meldId = el.getAttribute('data-tile-meld') ?? undefined;
+    map.set(id, {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+      zone,
+      meldId,
+      meldSig: meldSigByTileId.get(id),
+    });
+  });
+
+  return map;
+}
 
 export const GameBoard: React.FC = () => {
   const {
@@ -27,6 +83,7 @@ export const GameBoard: React.FC = () => {
     selectedTileIds,
     activeModal,
     mpRoom,
+    localMessages,
     setScreen,
     setActiveModal,
     updateConfig,
@@ -47,11 +104,23 @@ export const GameBoard: React.FC = () => {
     drawTile,
     stepAITurn,
     clearError,
+    sendTableMessage,
+    restartMultiplayerGame,
     refreshMultiplayerRoom,
     leaveMultiplayerRoom,
   } = useGameStore();
 
   const [activeDragTile, setActiveDragTile] = useState<Tile | null>(null);
+  const [activeFlights, setActiveFlights] = useState<FlyingTileItem[]>([]);
+  const [lastHintFlights, setLastHintFlights] = useState<FlyingTileItem[]>([]);
+  const [hintMovedIds, setHintMovedIds] = useState<string[]>([]);
+  const [lastHintExplanation, setLastHintExplanation] = useState<string | null>(null);
+
+  const pendingTransitionRef = useRef<{
+    mode: 'hint' | 'move';
+    beforeRects: Map<string, CapturedTileRect>;
+  } | null>(null);
+  const flightCleanupTimerRef = useRef<number | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -67,6 +136,43 @@ export const GameBoard: React.FC = () => {
     })
   );
 
+  const startFlightAnimation = useCallback((items: FlyingTileItem[]) => {
+    if (items.length === 0) return;
+    if (flightCleanupTimerRef.current) {
+      window.clearTimeout(flightCleanupTimerRef.current);
+    }
+    setActiveFlights(items);
+    const maxEnd = items.reduce(
+      (max, it) => Math.max(max, it.delayMs + it.durationMs),
+      0
+    );
+    // Keep trajectory overlay slightly longer for hint mode so player can trace arrows
+    const hasTrajectory = items.some((it) => it.showTrajectory);
+    const holdExtra = hasTrajectory ? 550 : 60;
+    flightCleanupTimerRef.current = window.setTimeout(() => {
+      setActiveFlights([]);
+    }, maxEnd + holdExtra);
+  }, []);
+
+  // Replay the last Smart Hint trajectory animation on demand
+  const handleReplayHintAnimation = useCallback(() => {
+    if (lastHintFlights.length === 0) return;
+    const nowKey = Date.now();
+    const replayed = lastHintFlights.map((item, idx) => ({
+      ...item,
+      key: `replay-${nowKey}-${idx}-${item.tile.id}`,
+    }));
+    startFlightAnimation(replayed);
+  }, [lastHintFlights, startFlightAnimation]);
+
+  // Clear hint highlights when turn number changes
+  useEffect(() => {
+    setHintMovedIds([]);
+    setLastHintExplanation(null);
+    setLastHintFlights([]);
+    setActiveFlights([]);
+  }, [gameState?.turnNumber, gameState?.id]);
+
   // Schedule AI turns automatically in single-player mode with comfortable reading pace (950ms)
   const currentPlayer = gameState?.players[gameState.currentPlayerIndex];
   const isAITurn =
@@ -78,10 +184,14 @@ export const GameBoard: React.FC = () => {
   useEffect(() => {
     if (!isAITurn) return;
     const timer = window.setTimeout(() => {
+      pendingTransitionRef.current = {
+        mode: 'move',
+        beforeRects: captureCurrentDomTileRects(gameState?.table),
+      };
       stepAITurn();
     }, 950);
     return () => window.clearTimeout(timer);
-  }, [isAITurn, gameState?.currentPlayerIndex, gameState?.turnNumber, stepAITurn]);
+  }, [isAITurn, gameState?.currentPlayerIndex, gameState?.turnNumber, gameState?.table, stepAITurn]);
 
   // Listen for Multiplayer Room updates across tabs or poll interval
   useEffect(() => {
@@ -143,6 +253,13 @@ export const GameBoard: React.FC = () => {
     return new Set(gameState.recentTileIds);
   }, [gameState]);
 
+  const hintMovedTileIdsSet = useMemo(() => new Set(hintMovedIds), [hintMovedIds]);
+
+  const inFlightTileIdsSet = useMemo(
+    () => new Set(activeFlights.map((f) => f.tile.id)),
+    [activeFlights]
+  );
+
   const lastActorName = useMemo(() => {
     if (!gameState || gameState.history.length === 0) return undefined;
     return gameState.history[0]?.playerName;
@@ -160,9 +277,146 @@ export const GameBoard: React.FC = () => {
     return map;
   }, [gameState]);
 
+  // Measure after-state DOM positions whenever gameState.table or humanPlayer.hand changes
+  useEffect(() => {
+    const pending = pendingTransitionRef.current;
+    if (!pending || !gameState) return;
+    pendingTransitionRef.current = null;
+
+    const afterRects = captureCurrentDomTileRects(gameState.table);
+    const flights: FlyingTileItem[] = [];
+    const movedIdsForHint: string[] = [];
+    const isHint = pending.mode === 'hint';
+    const stamp = Date.now();
+
+    afterRects.forEach((after, tileId) => {
+      const before = pending.beforeRects.get(tileId);
+      if (!before) return;
+
+      const zoneChanged = before.zone !== after.zone;
+      const meldCompositionChanged =
+        before.zone === 'table' &&
+        after.zone === 'table' &&
+        before.meldSig !== after.meldSig;
+      const distance = Math.hypot(after.left - before.left, after.top - before.top);
+
+      if (zoneChanged || (meldCompositionChanged && distance > 14)) {
+        const tile = allTilesById.get(tileId);
+        if (!tile) return;
+
+        const idx = flights.length;
+        flights.push({
+          key: `flight-${stamp}-${idx}-${tileId}`,
+          tile,
+          fromX: before.left,
+          fromY: before.top,
+          toX: after.left,
+          toY: after.top,
+          width: after.width,
+          height: after.height,
+          fromZone: before.zone,
+          toZone: after.zone,
+          delayMs: isHint ? idx * 140 : idx * 50,
+          durationMs: isHint ? 780 : 420,
+          showTrajectory: isHint,
+        });
+
+        if (isHint && after.zone === 'table') {
+          movedIdsForHint.push(tileId);
+        }
+      }
+    });
+
+    if (flights.length > 0) {
+      startFlightAnimation(flights);
+      if (isHint) {
+        setLastHintFlights(flights);
+        setHintMovedIds(movedIdsForHint);
+        const notice = gameState.lastActionNotice ?? '';
+        const cleaned = notice
+          .replace(/^已为你自动摆出推荐方案：/, '')
+          .replace(/（点击「出牌提交」确认或「撤销」恢复）$/, '');
+        setLastHintExplanation(cleaned || '推荐出牌组合');
+      }
+    } else if (isHint && lastHintFlights.length > 0) {
+      // User clicked Smart Hint again while hint is already on the table -> replay the trajectory animation!
+      handleReplayHintAnimation();
+    }
+  }, [
+    gameState,
+    allTilesById,
+    startFlightAnimation,
+    lastHintFlights.length,
+    handleReplayHintAnimation,
+  ]);
+
   if (!gameState || !humanPlayer) {
     return null;
   }
+
+  const handleAnimatedSmartHint = () => {
+    pendingTransitionRef.current = {
+      mode: 'hint',
+      beforeRects: captureCurrentDomTileRects(gameState.table),
+    };
+    applySmartHint();
+  };
+
+  const handleAnimatedPlaySelectedToNewMeld = () => {
+    pendingTransitionRef.current = {
+      mode: 'move',
+      beforeRects: captureCurrentDomTileRects(gameState.table),
+    };
+    playSelectedToNewMeld();
+  };
+
+  const handleAnimatedPlayIdsToNewMeld = (tileIds: string[]) => {
+    pendingTransitionRef.current = {
+      mode: 'move',
+      beforeRects: captureCurrentDomTileRects(gameState.table),
+    };
+    playTilesByIdsToNewMeld(tileIds);
+  };
+
+  const handleAnimatedMoveToMeld = (
+    tileIds: string[],
+    meldId: string,
+    targetIndex?: number
+  ) => {
+    pendingTransitionRef.current = {
+      mode: 'move',
+      beforeRects: captureCurrentDomTileRects(gameState.table),
+    };
+    moveTileOrSelectionToMeld(tileIds, meldId, targetIndex);
+  };
+
+  const handleAnimatedReturnToHand = (tileIds: string[]) => {
+    pendingTransitionRef.current = {
+      mode: 'move',
+      beforeRects: captureCurrentDomTileRects(gameState.table),
+    };
+    returnTileOrSelectionToHand(tileIds);
+  };
+
+  const handleAnimatedUndo = () => {
+    setHintMovedIds([]);
+    setLastHintExplanation(null);
+    pendingTransitionRef.current = {
+      mode: 'move',
+      beforeRects: captureCurrentDomTileRects(gameState.table),
+    };
+    undoStep();
+  };
+
+  const handleAnimatedReset = () => {
+    setHintMovedIds([]);
+    setLastHintExplanation(null);
+    pendingTransitionRef.current = {
+      mode: 'move',
+      beforeRects: captureCurrentDomTileRects(gameState.table),
+    };
+    resetTurn();
+  };
 
   const handleDragStart = (event: DragStartEvent) => {
     const tile = event.active.data.current?.tile as Tile | undefined;
@@ -200,6 +454,8 @@ export const GameBoard: React.FC = () => {
     }
   };
 
+  const activeMessages = mpRoom ? mpRoom.messages : localMessages;
+
   return (
     <DndContext
       sensors={sensors}
@@ -216,6 +472,7 @@ export const GameBoard: React.FC = () => {
           isMyTurn={isMyTurn}
           isAIThinking={isAITurn}
           mpRoom={mpRoom}
+          messages={activeMessages}
           onGoHome={() => {
             if (mpRoom) {
               leaveMultiplayerRoom();
@@ -223,8 +480,10 @@ export const GameBoard: React.FC = () => {
               setScreen('home');
             }
           }}
+          onOpenTracker={() => setActiveModal('tracker')}
           onOpenRules={() => setActiveModal('rules')}
           onOpenSettings={() => setActiveModal('settings')}
+          onSendMessage={sendTableMessage}
           onClearError={clearError}
         />
 
@@ -235,15 +494,21 @@ export const GameBoard: React.FC = () => {
           selectedTileIds={selectedTileIds}
           turnStartHandIds={turnStartHandIds}
           recentTileIds={recentTileIds}
+          hintMovedTileIds={hintMovedTileIdsSet}
+          inFlightTileIds={inFlightTileIdsSet}
+          lastHintExplanation={lastHintExplanation}
           lastActorName={lastActorName}
           recentHistory={gameState.history}
           onToggleSelectTile={toggleSelectTile}
-          onPlaySelectedToNewMeld={playSelectedToNewMeld}
+          onPlaySelectedToNewMeld={handleAnimatedPlaySelectedToNewMeld}
           onMoveSelectedToMeld={(meldId, targetIndex) =>
-            moveTileOrSelectionToMeld(selectedTileIds, meldId, targetIndex)
+            handleAnimatedMoveToMeld(selectedTileIds, meldId, targetIndex)
           }
           onSplitMeld={splitMeld}
           onNormalizeMeld={normalizeMeldById}
+          onReplayHintAnimation={
+            lastHintFlights.length > 0 ? handleReplayHintAnimation : undefined
+          }
         />
 
         {/* Bottom Player Hand Rack */}
@@ -253,15 +518,14 @@ export const GameBoard: React.FC = () => {
           sortMode={config.autoSortRack}
           selectedTileIds={selectedTileIds}
           recentTileIds={recentTileIds}
+          inFlightTileIds={inFlightTileIdsSet}
           turnStartHandIds={turnStartHandIds}
           allTilesById={allTilesById}
           onToggleSelectTile={toggleSelectTile}
           onClearSelection={clearSelection}
-          onPlaySelectedToNewMeld={playSelectedToNewMeld}
-          onPlayCandidateMeld={(tileIds) => playTilesByIdsToNewMeld(tileIds)}
-          onReturnSelectedToHand={() =>
-            returnTileOrSelectionToHand(selectedTileIds)
-          }
+          onPlaySelectedToNewMeld={handleAnimatedPlaySelectedToNewMeld}
+          onPlayCandidateMeld={handleAnimatedPlayIdsToNewMeld}
+          onReturnSelectedToHand={() => handleAnimatedReturnToHand(selectedTileIds)}
           onSortHand={sortHand}
         />
 
@@ -269,12 +533,15 @@ export const GameBoard: React.FC = () => {
         <ActionBar
           gameState={gameState}
           isMyTurn={isMyTurn}
-          onUndo={undoStep}
-          onResetTurn={resetTurn}
-          onSmartHint={applySmartHint}
+          onUndo={handleAnimatedUndo}
+          onResetTurn={handleAnimatedReset}
+          onSmartHint={handleAnimatedSmartHint}
           onDrawTile={drawTile}
           onSubmitTurn={submitTurn}
         />
+
+        {/* Board-Wide Parabolic Tile Flight & SVG Trajectory Overlay */}
+        <TileFlightOverlay flights={activeFlights} />
 
         {/* Drag Overlay */}
         <DragOverlay>
@@ -286,6 +553,14 @@ export const GameBoard: React.FC = () => {
         </DragOverlay>
 
         {/* Modals */}
+        {activeModal === 'tracker' && (
+          <TileTrackerModal
+            gameState={gameState}
+            myHand={humanPlayer.hand}
+            onClose={() => setActiveModal('none')}
+          />
+        )}
+
         {activeModal === 'rules' && (
           <RulesModal onClose={() => setActiveModal('none')} />
         )}
@@ -302,7 +577,14 @@ export const GameBoard: React.FC = () => {
         {gameState.status === 'finished' && (
           <SettlementModal
             gameState={gameState}
-            onPlayAgain={() => startNewGame()}
+            isMultiplayer={Boolean(mpRoom)}
+            onPlayAgain={() => {
+              if (mpRoom) {
+                restartMultiplayerGame();
+              } else {
+                startNewGame();
+              }
+            }}
             onGoHome={() => {
               if (mpRoom) {
                 leaveMultiplayerRoom();

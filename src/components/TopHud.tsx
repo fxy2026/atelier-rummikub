@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import {
   AlertTriangle,
+  BarChart3,
   BookOpen,
   Bot,
   Check,
@@ -11,22 +12,27 @@ import {
   Layers,
   Loader2,
   Megaphone,
+  MessageSquare,
   Radio,
+  Send,
   Settings,
   User,
   Users,
 } from 'lucide-react';
 import { GameState } from '@/engine';
-import { SanitizedRoomView } from '@/lib/multiplayer';
+import { RoomChatMessage, SanitizedRoomView } from '@/lib/multiplayer';
 
 interface TopHudProps {
   gameState: GameState;
   isMyTurn: boolean;
   isAIThinking: boolean;
   mpRoom: SanitizedRoomView | null;
+  messages: RoomChatMessage[];
   onGoHome: () => void;
+  onOpenTracker: () => void;
   onOpenRules: () => void;
   onOpenSettings: () => void;
+  onSendMessage: (text: string) => void;
   onClearError: () => void;
 }
 
@@ -37,17 +43,32 @@ const SEAT_COLORS = [
   'border-rose-400/50 text-rose-300',
 ];
 
+const QUICK_PHRASES = [
+  '👏 好牌！拆得漂亮！',
+  '🤔 容我仔细算算…',
+  '⚡ 快点出牌吧～',
+  '🎉 终于破冰成功了！',
+  '😱 差一张就能胡了！',
+  '🤝 承让承让，再来一局！',
+];
+
 export const TopHud: React.FC<TopHudProps> = ({
   gameState,
   isMyTurn,
   isAIThinking,
   mpRoom,
+  messages,
   onGoHome,
+  onOpenTracker,
   onOpenRules,
   onOpenSettings,
+  onSendMessage,
   onClearError,
 }) => {
   const [copiedRoom, setCopiedRoom] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [customChat, setCustomChat] = useState('');
+
   const activePlayer = gameState.players[gameState.currentPlayerIndex];
   const latestLog = gameState.history[0] ?? null;
 
@@ -59,9 +80,16 @@ export const TopHud: React.FC<TopHudProps> = ({
     setTimeout(() => setCopiedRoom(false), 2000);
   };
 
+  const handleSendPhrase = (text: string) => {
+    if (!text.trim()) return;
+    onSendMessage(text.trim());
+    setCustomChat('');
+    setChatOpen(false);
+  };
+
   return (
-    <header className="w-full bg-[#0A1310]/95 border-b border-[#C8A464]/25 px-2.5 sm:px-6 py-1.5 sm:py-2.5 flex flex-col gap-1.5 sm:gap-2 z-20 shrink-0">
-      {/* Top Row: Brand, Player Cards (centered on desktop, full-width scrollable row on mobile), Pool & System Controls */}
+    <header className="relative w-full bg-[#0A1310]/95 border-b border-[#C8A464]/25 px-2.5 sm:px-6 py-1.5 sm:py-2.5 flex flex-col gap-1.5 sm:gap-2 z-20 shrink-0">
+      {/* Top Row: Brand, Player Cards, Pool & System Controls */}
       <div className="flex flex-wrap items-center justify-between gap-1.5 sm:gap-2">
         {/* Left: Brand & Back to Home */}
         <div className="flex items-center gap-1.5 sm:gap-3 order-1">
@@ -107,18 +135,96 @@ export const TopHud: React.FC<TopHudProps> = ({
           </div>
         </div>
 
-        {/* Right: Pool Counter & Modal Triggers (order-2 on mobile so it stays on row 1) */}
-        <div className="flex items-center gap-1.5 sm:gap-2 order-2 lg:order-3">
+        {/* Right: Pool Counter, Tile Tracker, Quick Chat & Modal Triggers */}
+        <div className="flex items-center gap-1 sm:gap-1.5 order-2 lg:order-3">
           <div
             data-testid="pool-counter"
-            className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-black/40 border border-[#C8A464]/30 text-[11px] sm:text-sm text-stone-200"
+            className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl bg-black/40 border border-[#C8A464]/30 text-[11px] sm:text-xs text-stone-200"
             title="公共摸牌池剩余牌数"
           >
-            <Layers className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#D4AF37]" />
-            <span className="hidden xs:inline sm:inline">牌池</span>
+            <Layers className="w-3.5 h-3.5 text-[#D4AF37]" />
+            <span className="hidden sm:inline">牌池</span>
             <strong className="tabular-nums text-[#E6C65A] font-bold">
               {gameState.pool.length}
             </strong>
+          </div>
+
+          {/* Strategic Tile Counter / Tracker Button */}
+          <button
+            type="button"
+            onClick={onOpenTracker}
+            data-testid="btn-open-tracker"
+            className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 border border-[#D4AF37]/35 text-[#E6C65A] text-[11px] sm:text-xs font-bold transition-colors"
+            title="打开 106 张全牌谱记牌器"
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span className="hidden xs:inline sm:inline">记牌器</span>
+          </button>
+
+          {/* Quick Chat / Emote Trigger */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setChatOpen((v) => !v)}
+              data-testid="btn-toggle-chat"
+              className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-stone-200 text-[11px] sm:text-xs font-medium transition-colors"
+              title="发送快捷互动短语或表情"
+            >
+              <MessageSquare className="w-3.5 h-3.5 text-sky-400" />
+              <span className="hidden sm:inline">互动</span>
+            </button>
+
+            {chatOpen && (
+              <div
+                data-testid="quick-chat-popover"
+                className="absolute right-0 mt-2 w-64 sm:w-72 p-3 rounded-2xl bg-[#0D1A15] border border-[#D4AF37]/40 shadow-2xl z-50 space-y-2.5"
+              >
+                <div className="text-xs font-bold text-[#E6C65A] flex items-center justify-between">
+                  <span>牌桌快捷互动</span>
+                  <button
+                    type="button"
+                    onClick={() => setChatOpen(false)}
+                    className="text-stone-400 hover:text-white text-[11px]"
+                  >
+                    关闭
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 gap-1.5">
+                  {QUICK_PHRASES.map((phrase) => (
+                    <button
+                      key={phrase}
+                      type="button"
+                      onClick={() => handleSendPhrase(phrase)}
+                      className="text-left px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-[#D4AF37]/20 border border-white/5 hover:border-[#D4AF37]/40 text-xs text-stone-200 transition-colors"
+                    >
+                      {phrase}
+                    </button>
+                  ))}
+                </div>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSendPhrase(customChat);
+                  }}
+                  className="flex items-center gap-1.5 pt-1 border-t border-white/10"
+                >
+                  <input
+                    type="text"
+                    value={customChat}
+                    onChange={(e) => setCustomChat(e.target.value)}
+                    placeholder="输入自定义短语…"
+                    maxLength={40}
+                    className="flex-1 px-2.5 py-1.5 rounded-lg bg-black/50 border border-white/15 text-xs text-stone-100 focus:outline-none focus:border-[#D4AF37]"
+                  />
+                  <button
+                    type="submit"
+                    className="p-1.5 rounded-lg bg-[#D4AF37] text-obsidian font-bold hover:bg-[#E6C65A]"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                  </button>
+                </form>
+              </div>
+            )}
           </div>
 
           <button
@@ -144,7 +250,7 @@ export const TopHud: React.FC<TopHudProps> = ({
           </button>
         </div>
 
-        {/* Center: Player Status Pills with Explicit Turn & Last Action */}
+        {/* Center: Player Status Pills with Explicit Turn, Last Action & Chat Bubble */}
         <div
           className="w-full lg:w-auto order-3 lg:order-2 flex items-center gap-1.5 sm:gap-3 overflow-x-auto py-0.5 sm:py-1"
           data-testid="players-status-bar"
@@ -155,6 +261,9 @@ export const TopHud: React.FC<TopHudProps> = ({
             const isHuman = player.type === 'human';
             const playerLastLog = gameState.history.find(
               (h) => h.playerId === player.id
+            );
+            const latestPlayerMsg = messages.find(
+              (m) => m.playerId === player.id && Date.now() - m.timestamp < 15000
             );
 
             return (
@@ -223,7 +332,11 @@ export const TopHud: React.FC<TopHudProps> = ({
                       余 <strong className="text-[#E6C65A]">{player.hand.length}</strong> 张
                     </span>
 
-                    {isCurrent ? (
+                    {latestPlayerMsg ? (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-sky-500/25 border border-sky-400/50 text-sky-100 font-bold text-[10px] truncate max-w-[120px]">
+                        💬 {latestPlayerMsg.text}
+                      </span>
+                    ) : isCurrent ? (
                       <span className="inline-flex items-center gap-0.5 px-1 sm:px-1.5 py-0.2 rounded bg-[#D4AF37] text-obsidian font-extrabold text-[9px] sm:text-[10px] animate-pulse">
                         {isAIThinking && !isHuman ? '思考中…' : '▶ 出牌中'}
                       </span>
@@ -305,7 +418,9 @@ export const TopHud: React.FC<TopHudProps> = ({
               <Megaphone className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-sky-400 shrink-0" />
               <span className="font-semibold text-sky-300 shrink-0">最新战况：</span>
               <span className="truncate font-medium text-stone-100">
-                {latestLog
+                {messages[0] && Date.now() - messages[0].timestamp < 10000
+                  ? `💬 【${messages[0].playerName}】：${messages[0].text}`
+                  : latestLog
                   ? latestLog.action === 'play'
                     ? `【${latestLog.playerName}】${
                         latestLog.brokeIce ? '破冰成功！' : ''

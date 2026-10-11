@@ -8,6 +8,7 @@ import {
   Palette,
   PlusCircle,
   Sparkles,
+  Wand2,
   X,
   Zap,
 } from 'lucide-react';
@@ -29,9 +30,10 @@ const COLOR_PIP: Record<TileColor, { pip: string; cls: string }> = {
 interface PlayerRackProps {
   hand: Tile[];
   isMyTurn: boolean;
-  sortMode: 'color' | 'number' | 'manual';
+  sortMode: 'color' | 'number' | 'smart' | 'manual';
   selectedTileIds: string[];
   recentTileIds: Set<string>;
+  inFlightTileIds: Set<string>;
   turnStartHandIds: Set<string>;
   allTilesById: Map<string, Tile>;
   onToggleSelectTile: (tileId: string) => void;
@@ -39,7 +41,7 @@ interface PlayerRackProps {
   onPlaySelectedToNewMeld: () => void;
   onPlayCandidateMeld: (tileIds: string[]) => void;
   onReturnSelectedToHand: () => void;
-  onSortHand: (mode: 'color' | 'number') => void;
+  onSortHand: (mode: 'color' | 'number' | 'smart') => void;
 }
 
 export const PlayerRack: React.FC<PlayerRackProps> = ({
@@ -48,6 +50,7 @@ export const PlayerRack: React.FC<PlayerRackProps> = ({
   sortMode,
   selectedTileIds,
   recentTileIds,
+  inFlightTileIds,
   turnStartHandIds,
   allTilesById,
   onToggleSelectTile,
@@ -85,7 +88,6 @@ export const PlayerRack: React.FC<PlayerRackProps> = ({
     const seen = new Set<string>();
 
     for (const c of raw) {
-      // Create a signature by tile colors+numbers so we don't show 4 overlapping sub-runs of the same set
       const sig = c.tiles
         .map((t) => (t.isJoker ? 'J' : `${t.color[0]}${t.number}`))
         .join('-');
@@ -114,7 +116,7 @@ export const PlayerRack: React.FC<PlayerRackProps> = ({
         {/* Rack Header: Hand Count, Sort Buttons, and Selection Quick Actions */}
         <div className="flex flex-wrap items-center justify-between gap-1.5 sm:gap-2">
           <div className="flex items-center justify-between w-full sm:w-auto gap-2 sm:gap-3">
-            <span className="text-xs sm:text-sm font-bold text-stone-200 tracking-wide flex items-center">
+            <span className="text-xs sm:text-sm font-bold text-stone-200 tracking-wide flex items-center shrink-0">
               我的手牌架
               <span
                 data-testid="rack-tile-count"
@@ -125,13 +127,13 @@ export const PlayerRack: React.FC<PlayerRackProps> = ({
             </span>
 
             {/* Sort Mode Controls */}
-            <div className="flex items-center gap-1 bg-black/40 p-0.5 rounded-lg border border-white/10">
+            <div className="flex items-center gap-0.5 sm:gap-1 bg-black/40 p-0.5 rounded-lg border border-white/10">
               <button
                 type="button"
                 onClick={() => onSortHand('color')}
                 data-testid="btn-sort-color"
                 className={[
-                  'inline-flex items-center gap-1 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md text-[11px] sm:text-xs font-medium transition-colors',
+                  'inline-flex items-center gap-1 px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-md text-[10px] sm:text-xs font-medium transition-colors',
                   sortMode === 'color'
                     ? 'bg-[#D4AF37] text-obsidian font-bold'
                     : 'text-stone-300 hover:text-white hover:bg-white/5',
@@ -145,7 +147,7 @@ export const PlayerRack: React.FC<PlayerRackProps> = ({
                 onClick={() => onSortHand('number')}
                 data-testid="btn-sort-number"
                 className={[
-                  'inline-flex items-center gap-1 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md text-[11px] sm:text-xs font-medium transition-colors',
+                  'inline-flex items-center gap-1 px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-md text-[10px] sm:text-xs font-medium transition-colors',
                   sortMode === 'number'
                     ? 'bg-[#D4AF37] text-obsidian font-bold'
                     : 'text-stone-300 hover:text-white hover:bg-white/5',
@@ -153,6 +155,21 @@ export const PlayerRack: React.FC<PlayerRackProps> = ({
               >
                 <ArrowUpDown className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                 按数字
+              </button>
+              <button
+                type="button"
+                onClick={() => onSortHand('smart')}
+                data-testid="btn-sort-smart"
+                title="自动将手中可组成合法顺子或数字组的牌排在最前面"
+                className={[
+                  'inline-flex items-center gap-1 px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-md text-[10px] sm:text-xs font-medium transition-colors',
+                  sortMode === 'smart'
+                    ? 'bg-[#D4AF37] text-obsidian font-bold'
+                    : 'text-[#E6C65A] hover:text-white hover:bg-white/5',
+                ].join(' ')}
+              >
+                <Wand2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                智能理牌
               </button>
             </div>
           </div>
@@ -210,7 +227,7 @@ export const PlayerRack: React.FC<PlayerRackProps> = ({
           )}
         </div>
 
-        {/* One-Tap Ready Meld Quick-Play Chips (huge mobile & desktop ergonomics boost) */}
+        {/* One-Tap Ready Meld Quick-Play Chips */}
         {isMyTurn && selectedTileIds.length === 0 && readyCandidateMelds.length > 0 && (
           <div
             data-testid="quick-meld-chips"
@@ -274,6 +291,7 @@ export const PlayerRack: React.FC<PlayerRackProps> = ({
                   disabled={!isMyTurn}
                   isSelected={selectedTileIds.includes(tile.id)}
                   isRecent={recentTileIds.has(tile.id)}
+                  isInFlight={inFlightTileIds.has(tile.id)}
                   onClick={() => {
                     onToggleSelectTile(tile.id);
                   }}

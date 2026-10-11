@@ -74,7 +74,7 @@ export interface GameConfig {
   aiCount: 1 | 2 | 3;
   aiDifficulty: AIDifficulty;
   soundEnabled: boolean;
-  autoSortRack: 'color' | 'number' | 'manual';
+  autoSortRack: 'color' | 'number' | 'smart' | 'manual';
 }
 
 export interface GameState {

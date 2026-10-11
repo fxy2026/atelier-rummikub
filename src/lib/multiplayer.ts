@@ -19,6 +19,14 @@ export interface RoomSeat {
   lastSeenAt: number;
 }
 
+export interface RoomChatMessage {
+  id: string;
+  playerId: string;
+  playerName: string;
+  text: string;
+  timestamp: number;
+}
+
 export interface RoomRecord {
   roomCode: string;
   hostPlayerId: string;
@@ -26,6 +34,7 @@ export interface RoomRecord {
   maxPlayers: 2 | 3 | 4;
   version: number;
   seats: RoomSeat[];
+  messages?: RoomChatMessage[];
   gameState: GameState | null;
   createdAt: number;
   updatedAt: number;
@@ -50,6 +59,7 @@ export interface SanitizedRoomView {
   version: number;
   myPlayerId: string | null;
   seats: Omit<RoomSeat, 'secretToken'>[];
+  messages: RoomChatMessage[];
   gameState: (Omit<GameState, 'players' | 'pool' | 'turnStartSnapshot' | 'undoStack'> & {
     poolCount: number;
     players: SanitizedPlayerSummary[];
@@ -83,6 +93,8 @@ export function sanitizeRoomForViewer(
     lastSeenAt: s.lastSeenAt,
   }));
 
+  const messages = room.messages ?? [];
+
   if (!room.gameState) {
     return {
       roomCode: room.roomCode,
@@ -92,6 +104,7 @@ export function sanitizeRoomForViewer(
       version: room.version,
       myPlayerId,
       seats: publicSeats,
+      messages,
       gameState: null,
       transportMode,
     };
@@ -125,6 +138,7 @@ export function sanitizeRoomForViewer(
     version: room.version,
     myPlayerId,
     seats: publicSeats,
+    messages,
     gameState: {
       id: gs.id,
       status: gs.status,
@@ -159,7 +173,9 @@ export function applyAuthoritativeRoomAction(params: {
   expectedVersion: number;
   action:
     | { type: 'start_game'; fillAiDifficulty?: 'easy' | 'hard' }
+    | { type: 'restart_game'; fillAiDifficulty?: 'easy' | 'hard' }
     | { type: 'rename_player'; playerName: string }
+    | { type: 'send_message'; text: string }
     | { type: 'commit_turn'; proposedHand: Tile[]; proposedTable: Meld[] }
     | { type: 'draw_tile' };
 }): { room: RoomRecord; ok: boolean; error?: string } {
@@ -170,7 +186,7 @@ export function applyAuthoritativeRoomAction(params: {
     return { room, ok: false, error: '无效的玩家身份凭证，无法执行操作' };
   }
 
-  // Action 0: Rename player (allowed in waiting lobby or active game)
+  // Action 0a: Rename player (allowed in waiting lobby or active game)
   if (action.type === 'rename_player') {
     const cleanName = String(action.playerName || '').trim().slice(0, 20);
     if (!cleanName) {
@@ -193,6 +209,81 @@ export function applyAuthoritativeRoomAction(params: {
         ...room,
         seats: updatedSeats,
         gameState: updatedGameState,
+        version: room.version + 1,
+        updatedAt: Date.now(),
+      },
+      ok: true,
+    };
+  }
+
+  // Action 0b: Quick chat / emote message
+  if (action.type === 'send_message') {
+    const cleanText = String(action.text || '').trim().slice(0, 40);
+    if (!cleanText) {
+      return { room, ok: false, error: '消息不能为空' };
+    }
+    const nextMsg: RoomChatMessage = {
+      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      playerId: actorSeat.playerId,
+      playerName: actorSeat.playerName,
+      text: cleanText,
+      timestamp: Date.now(),
+    };
+    const nextMessages = [nextMsg, ...(room.messages ?? [])].slice(0, 15);
+    return {
+      room: {
+        ...room,
+        messages: nextMessages,
+        version: room.version + 1,
+        updatedAt: Date.now(),
+      },
+      ok: true,
+    };
+  }
+
+  // Action 0c: Restart game (Rematch in same room)
+  if (action.type === 'restart_game') {
+    if (room.status !== 'finished' && actorSeat.playerId !== room.hostPlayerId) {
+      return { room, ok: false, error: '对局进行中只有房主可以重开对局' };
+    }
+
+    const updatedSeats = [...room.seats];
+    while (updatedSeats.length < room.maxPlayers) {
+      const idx = updatedSeats.length;
+      updatedSeats.push({
+        seatIndex: idx,
+        playerId: `room-ai-${idx + 1}`,
+        playerName: `AI 补位 #${idx}`,
+        playerType: 'ai',
+        connected: true,
+        lastSeenAt: Date.now(),
+      });
+    }
+
+    const initialState = createInitialGameState(
+      {
+        aiCount: Math.max(1, updatedSeats.length - 1) as 1 | 2 | 3,
+        aiDifficulty:
+          action.fillAiDifficulty ?? room.gameState?.config.aiDifficulty ?? 'hard',
+      },
+      Math.random,
+      updatedSeats.map((s) => ({
+        name: s.playerName,
+        type: s.playerType,
+      }))
+    );
+
+    initialState.players = initialState.players.map((p, idx) => ({
+      ...p,
+      id: updatedSeats[idx].playerId,
+    }));
+
+    return {
+      room: {
+        ...room,
+        status: 'playing',
+        seats: updatedSeats,
+        gameState: initialState,
         version: room.version + 1,
         updatedAt: Date.now(),
       },

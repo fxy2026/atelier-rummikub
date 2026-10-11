@@ -1,4 +1,4 @@
-import { computeAIMove } from './ai';
+import { computeAIMove, generateCandidateMeldsFromTiles } from './ai';
 import {
   calculateHandPenalty,
   cloneMelds,
@@ -19,6 +19,35 @@ import {
 import { validateMeld, validateTurnCommit } from './validator';
 
 const AI_NAMES = ['阿尔法 · 智者', '贝塔 · 大师', '伽马 · 策士'];
+
+/**
+ * Sorts a player's rack tiles by 'color', 'number', or 'smart' (which groups ready-to-play valid melds first).
+ */
+export function sortRackTiles(
+  tiles: readonly Tile[],
+  mode: 'color' | 'number' | 'smart'
+): Tile[] {
+  if (mode === 'color' || mode === 'number') {
+    return sortTiles(tiles, mode);
+  }
+
+  // Smart sort: greedily extract disjoint valid melds first, then sort remaining tiles by color
+  const candidates = generateCandidateMeldsFromTiles(tiles);
+  const usedIds = new Set<string>();
+  const groupedTiles: Tile[] = [];
+
+  for (const cand of candidates) {
+    if (cand.tiles.every((t) => !usedIds.has(t.id))) {
+      for (const t of cand.tiles) {
+        usedIds.add(t.id);
+        groupedTiles.push({ ...t });
+      }
+    }
+  }
+
+  const remaining = tiles.filter((t) => !usedIds.has(t.id));
+  return [...groupedTiles, ...sortTiles(remaining, 'color')];
+}
 
 export const DEFAULT_GAME_CONFIG: GameConfig = {
   aiCount: 3,
@@ -54,7 +83,7 @@ export function createInitialGameState(
     const sortedHand =
       config.autoSortRack === 'manual'
         ? rawHand
-        : sortTiles(rawHand, config.autoSortRack);
+        : sortRackTiles(rawHand, config.autoSortRack);
 
     players.push({
       id: isHuman && i === 0 ? 'player-human' : `player-${i + 1}`,
@@ -410,14 +439,14 @@ export function sortTableMeld(state: GameState, meldId: string): GameState {
 }
 
 /**
- * Sorts the current player's rack by color or number without losing any turn changes.
+ * Sorts the current player's rack by color, number, or smart meld grouping without losing any turn changes.
  */
 export function sortCurrentPlayerHand(
   state: GameState,
-  mode: 'color' | 'number'
+  mode: 'color' | 'number' | 'smart'
 ): GameState {
   const currentPlayer = state.players[state.currentPlayerIndex];
-  const sortedHand = sortTiles(currentPlayer.hand, mode);
+  const sortedHand = sortRackTiles(currentPlayer.hand, mode);
   const updatedPlayers = state.players.map((p, idx) =>
     idx === state.currentPlayerIndex ? { ...p, hand: sortedHand } : p
   );
@@ -660,7 +689,7 @@ export function drawTileAndEndTurn(state: GameState): {
     const rawNewHand = [...currentPlayer.hand, drawnTile];
     const newHand =
       currentPlayer.type === 'human' && restoredState.config.autoSortRack !== 'manual'
-        ? sortTiles(rawNewHand, restoredState.config.autoSortRack)
+        ? sortRackTiles(rawNewHand, restoredState.config.autoSortRack)
         : rawNewHand;
 
     const updatedPlayers = restoredState.players.map((p, idx) =>

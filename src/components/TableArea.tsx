@@ -8,6 +8,8 @@ import {
   ArrowUpDown,
   CheckCircle2,
   History,
+  Lightbulb,
+  Play,
   PlusCircle,
   Scissors,
   Sparkles,
@@ -41,6 +43,8 @@ interface MeldTrayProps {
   selectedTileIds: string[];
   turnStartHandIds: Set<string>;
   recentTileIds: Set<string>;
+  hintMovedTileIds: Set<string>;
+  inFlightTileIds: Set<string>;
   lastActorName?: string;
   onToggleSelectTile: (tileId: string) => void;
   onMoveSelectedToMeld: (meldId: string, targetIndex?: number) => void;
@@ -55,6 +59,8 @@ const MeldTray: React.FC<MeldTrayProps> = ({
   selectedTileIds,
   turnStartHandIds,
   recentTileIds,
+  hintMovedTileIds,
+  inFlightTileIds,
   lastActorName,
   onToggleSelectTile,
   onMoveSelectedToMeld,
@@ -72,6 +78,7 @@ const MeldTray: React.FC<MeldTrayProps> = ({
   const validation = validateMeld(meld.tiles);
   const hasSelection = isMyTurn && selectedTileIds.length > 0;
   const hasRecentTile = meld.tiles.some((t) => recentTileIds.has(t.id));
+  const hasHintMovedTile = meld.tiles.some((t) => hintMovedTileIds.has(t.id));
 
   // Check if a single tile inside this meld is selected -> offer a 1-tap Split button for mobile ergonomics
   const selectedIdxInMeld =
@@ -96,6 +103,8 @@ const MeldTray: React.FC<MeldTrayProps> = ({
         'relative flex flex-col gap-1.5 p-2 sm:p-3 rounded-2xl border transition-all duration-200 shadow-tray',
         isOver
           ? 'bg-[#D4AF37]/20 border-[#D4AF37] scale-[1.02]'
+          : hasHintMovedTile && validation.isValid
+          ? 'bg-amber-950/45 border-amber-400/75 shadow-[0_0_22px_rgba(251,191,36,0.28)]'
           : hasRecentTile && validation.isValid
           ? 'bg-sky-950/40 border-sky-400/70 shadow-[0_0_20px_rgba(56,189,248,0.22)]'
           : validation.isValid
@@ -121,7 +130,13 @@ const MeldTray: React.FC<MeldTrayProps> = ({
             </span>
           )}
 
-          {hasRecentTile && lastActorName && (
+          {hasHintMovedTile && (
+            <span className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded-md bg-amber-500/25 text-amber-200 border border-amber-400/50 font-bold">
+              💡 提示落点
+            </span>
+          )}
+
+          {hasRecentTile && lastActorName && !hasHintMovedTile && (
             <span
               data-testid={`meld-recent-actor-${index}`}
               className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded-md bg-sky-500/25 text-sky-200 border border-sky-400/50 font-bold"
@@ -179,6 +194,8 @@ const MeldTray: React.FC<MeldTrayProps> = ({
           const isSelected = selectedTileIds.includes(tile.id);
           const isFromHand = turnStartHandIds.has(tile.id);
           const isRecent = recentTileIds.has(tile.id);
+          const isHintMoved = hintMovedTileIds.has(tile.id);
+          const isInFlight = inFlightTileIds.has(tile.id);
           const jokerAssignment = validation.jokerAssignments[tile.id];
 
           return (
@@ -208,6 +225,8 @@ const MeldTray: React.FC<MeldTrayProps> = ({
                 isSelected={isSelected}
                 isFromHandThisTurn={isFromHand}
                 isRecent={isRecent}
+                isHintMoved={isHintMoved}
+                isInFlight={isInFlight}
                 recentActorLabel={lastActorName}
                 jokerAssignment={jokerAssignment}
                 onClick={() => {
@@ -229,6 +248,9 @@ interface TableAreaProps {
   selectedTileIds: string[];
   turnStartHandIds: Set<string>;
   recentTileIds: Set<string>;
+  hintMovedTileIds: Set<string>;
+  inFlightTileIds: Set<string>;
+  lastHintExplanation: string | null;
   lastActorName?: string;
   recentHistory: TurnHistoryLog[];
   onToggleSelectTile: (tileId: string) => void;
@@ -236,6 +258,7 @@ interface TableAreaProps {
   onMoveSelectedToMeld: (meldId: string, targetIndex?: number) => void;
   onSplitMeld: (meldId: string, splitIndex: number) => void;
   onNormalizeMeld: (meldId: string) => void;
+  onReplayHintAnimation?: () => void;
 }
 
 export const TableArea: React.FC<TableAreaProps> = ({
@@ -244,6 +267,9 @@ export const TableArea: React.FC<TableAreaProps> = ({
   selectedTileIds,
   turnStartHandIds,
   recentTileIds,
+  hintMovedTileIds,
+  inFlightTileIds,
+  lastHintExplanation,
   lastActorName,
   recentHistory,
   onToggleSelectTile,
@@ -251,6 +277,7 @@ export const TableArea: React.FC<TableAreaProps> = ({
   onMoveSelectedToMeld,
   onSplitMeld,
   onNormalizeMeld,
+  onReplayHintAnimation,
 }) => {
   const { isOver, setNodeRef } = useDroppable({
     id: 'table-new-meld-zone',
@@ -275,6 +302,20 @@ export const TableArea: React.FC<TableAreaProps> = ({
     return list;
   }, [melds, recentTileIds]);
 
+  // Collect tiles moved by Smart Hint for visual breakdown
+  const hintTableTiles: Tile[] = React.useMemo(() => {
+    if (hintMovedTileIds.size === 0) return [];
+    const list: Tile[] = [];
+    for (const m of melds) {
+      for (const t of m.tiles) {
+        if (hintMovedTileIds.has(t.id)) {
+          list.push(t);
+        }
+      }
+    }
+    return list;
+  }, [melds, hintMovedTileIds]);
+
   return (
     <section
       ref={setNodeRef}
@@ -288,65 +329,112 @@ export const TableArea: React.FC<TableAreaProps> = ({
       {/* Subtle decorative tournament table border line */}
       <div className="pointer-events-none absolute inset-2 sm:inset-3 rounded-2xl sm:rounded-3xl border border-[#C8A464]/15" />
 
-      <div className="relative z-10 max-w-7xl mx-auto min-h-full flex flex-col justify-between gap-3 sm:gap-4">
-        {/* Top Live Turn Action Feed Bar with Visual Mini-Tile Preview */}
-        {recentHistory.length > 0 && (
-          <div
-            data-testid="turn-history-strip"
-            className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto py-1 sm:py-1.5 px-2.5 sm:px-3 rounded-xl sm:rounded-2xl bg-black/45 border border-white/10 text-[11px] sm:text-xs shrink-0"
-          >
-            <span className="inline-flex items-center gap-1 text-stone-400 font-semibold shrink-0">
-              <History className="w-3.5 h-3.5 text-[#D4AF37]" />
-              <span className="hidden xs:inline sm:inline">出牌动态：</span>
-            </span>
-
-            {recentHistory.slice(0, 5).map((item, idx) => (
-              <span
-                key={item.id}
-                className={[
-                  'inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-lg sm:rounded-xl border shrink-0 transition-all',
-                  idx === 0
-                    ? item.action === 'play'
-                      ? 'bg-sky-500/20 border-sky-400/50 text-sky-100 font-bold'
-                      : 'bg-amber-500/20 border-amber-400/50 text-amber-100 font-bold'
-                    : 'bg-white/5 border-white/10 text-stone-300',
-                ].join(' ')}
-              >
-                <span className="opacity-70 text-[10px]">#{item.turnNumber}</span>
-                <span>{item.playerName}</span>
-                <span>
-                  {item.action === 'play'
-                    ? `出${item.tilesPlayedCount}张${item.brokeIce ? '(破冰)' : ''}`
-                    : item.action === 'draw'
-                    ? '摸1张'
-                    : '跳过'}
+      <div className="relative z-10 max-w-7xl mx-auto min-h-full flex flex-col justify-between gap-2.5 sm:gap-4">
+        <div className="flex flex-col gap-1.5 sm:gap-2 shrink-0">
+          {/* Smart Hint Visual Route Breakdown & Replay Bar */}
+          {lastHintExplanation && hintTableTiles.length > 0 && (
+            <div
+              data-testid="hint-breakdown-banner"
+              className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl bg-gradient-to-r from-amber-950/90 via-[#1E2514]/90 to-emerald-950/90 border border-[#E6C65A]/60 text-xs shadow-lg"
+            >
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#D4AF37] text-obsidian font-extrabold text-[11px]">
+                  <Lightbulb className="w-3.5 h-3.5" />
+                  智能提示演示
                 </span>
-
-                {/* Show exact mini tile pills for the most recent play */}
-                {idx === 0 && item.action === 'play' && recentTableTiles.length > 0 && (
-                  <span className="inline-flex items-center gap-0.5 ml-0.5">
-                    {recentTableTiles.slice(0, 6).map((t) => {
-                      const meta = MINI_COLOR_BADGE[t.color];
-                      return (
-                        <span
-                          key={t.id}
-                          className={`inline-flex items-center px-1 py-0.2 rounded border text-[10px] font-black leading-none tabular-nums ${meta.cls}`}
-                        >
-                          {t.isJoker ? '★J' : `${meta.pip}${t.number}`}
-                        </span>
-                      );
-                    })}
-                    {recentTableTiles.length > 6 && (
-                      <span className="text-[10px] text-sky-200">
-                        +{recentTableTiles.length - 6}
+                <span className="text-amber-100 font-semibold">
+                  {lastHintExplanation}
+                </span>
+                <span className="inline-flex items-center gap-1 ml-1">
+                  {hintTableTiles.map((t) => {
+                    const meta = MINI_COLOR_BADGE[t.color];
+                    const fromHand = turnStartHandIds.has(t.id);
+                    return (
+                      <span
+                        key={t.id}
+                        title={fromHand ? '从手牌打出的牌' : '桌面重组挪动的牌'}
+                        className={`inline-flex items-center px-1.5 py-0.5 rounded border text-[10px] font-black leading-none tabular-nums ${meta.cls}`}
+                      >
+                        {t.isJoker ? '★J' : `${meta.pip}${t.number}`}
                       </span>
-                    )}
-                  </span>
-                )}
+                    );
+                  })}
+                </span>
+              </div>
+
+              {onReplayHintAnimation && (
+                <button
+                  type="button"
+                  onClick={onReplayHintAnimation}
+                  data-testid="btn-replay-hint-anim"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#D4AF37]/20 hover:bg-[#D4AF37]/35 border border-[#E6C65A]/50 text-[#E6C65A] font-bold text-[11px] transition-colors shrink-0"
+                >
+                  <Play className="w-3 h-3 fill-current" />
+                  重播轨迹动画
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Top Live Turn Action Feed Bar with Visual Mini-Tile Preview */}
+          {recentHistory.length > 0 && (
+            <div
+              data-testid="turn-history-strip"
+              className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto py-1 sm:py-1.5 px-2.5 sm:px-3 rounded-xl sm:rounded-2xl bg-black/45 border border-white/10 text-[11px] sm:text-xs shrink-0"
+            >
+              <span className="inline-flex items-center gap-1 text-stone-400 font-semibold shrink-0">
+                <History className="w-3.5 h-3.5 text-[#D4AF37]" />
+                <span className="hidden xs:inline sm:inline">出牌动态：</span>
               </span>
-            ))}
-          </div>
-        )}
+
+              {recentHistory.slice(0, 5).map((item, idx) => (
+                <span
+                  key={item.id}
+                  className={[
+                    'inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-lg sm:rounded-xl border shrink-0 transition-all',
+                    idx === 0
+                      ? item.action === 'play'
+                        ? 'bg-sky-500/20 border-sky-400/50 text-sky-100 font-bold'
+                        : 'bg-amber-500/20 border-amber-400/50 text-amber-100 font-bold'
+                      : 'bg-white/5 border-white/10 text-stone-300',
+                  ].join(' ')}
+                >
+                  <span className="opacity-70 text-[10px]">#{item.turnNumber}</span>
+                  <span>{item.playerName}</span>
+                  <span>
+                    {item.action === 'play'
+                      ? `出${item.tilesPlayedCount}张${item.brokeIce ? '(破冰)' : ''}`
+                      : item.action === 'draw'
+                      ? '摸1张'
+                      : '跳过'}
+                  </span>
+
+                  {/* Show exact mini tile pills for the most recent play */}
+                  {idx === 0 && item.action === 'play' && recentTableTiles.length > 0 && (
+                    <span className="inline-flex items-center gap-0.5 ml-0.5">
+                      {recentTableTiles.slice(0, 6).map((t) => {
+                        const meta = MINI_COLOR_BADGE[t.color];
+                        return (
+                          <span
+                            key={t.id}
+                            className={`inline-flex items-center px-1 py-0.2 rounded border text-[10px] font-black leading-none tabular-nums ${meta.cls}`}
+                          >
+                            {t.isJoker ? '★J' : `${meta.pip}${t.number}`}
+                          </span>
+                        );
+                      })}
+                      {recentTableTiles.length > 6 && (
+                        <span className="text-[10px] text-sky-200">
+                          +{recentTableTiles.length - 6}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Active Melds Grid */}
         {melds.length === 0 ? (
@@ -386,6 +474,8 @@ export const TableArea: React.FC<TableAreaProps> = ({
                 selectedTileIds={selectedTileIds}
                 turnStartHandIds={turnStartHandIds}
                 recentTileIds={recentTileIds}
+                hintMovedTileIds={hintMovedTileIds}
+                inFlightTileIds={inFlightTileIds}
                 lastActorName={lastActorName}
                 onToggleSelectTile={onToggleSelectTile}
                 onMoveSelectedToMeld={onMoveSelectedToMeld}

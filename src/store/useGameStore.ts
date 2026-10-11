@@ -22,11 +22,19 @@ import {
 } from '@/engine';
 import {
   applyAuthoritativeRoomAction,
+  RoomChatMessage,
   RoomRecord,
   SanitizedRoomView,
   sanitizeRoomForViewer,
 } from '@/lib/multiplayer';
 import { soundFX } from '@/lib/sound';
+import {
+  CareerStats,
+  DEFAULT_CAREER_STATS,
+  loadCareerStats,
+  recordGameEndStats,
+  recordTurnPlayStats,
+} from '@/lib/stats';
 
 const SAVE_STORAGE_KEY = 'atelier_rummikub_save_v2';
 const CONFIG_STORAGE_KEY = 'atelier_rummikub_config_v2';
@@ -34,6 +42,15 @@ const MP_ROOMS_LOCAL_KEY = 'atelier_rummikub_mp_rooms_v2';
 const MP_TOKENS_LOCAL_KEY = 'atelier_rummikub_mp_tokens_v2';
 
 export type ScreenMode = 'home' | 'game' | 'multiplayer';
+export type ModalType = 'none' | 'rules' | 'settings' | 'multiplayer' | 'tracker';
+
+const AI_CHAT_REPLIES = [
+  '好棋！这手牌拆得真妙 👏',
+  '容我推演一番桌面局势 🤔',
+  '看来你离清空手牌不远了！',
+  '拉密的魅力就在瞬息万变的重组 ✨',
+  '稳住，我还在等关键连接牌！',
+];
 
 interface GameStore {
   hydrated: boolean;
@@ -42,7 +59,9 @@ interface GameStore {
   gameState: GameState | null;
   selectedTileIds: string[];
   isAIThinking: boolean;
-  activeModal: 'none' | 'rules' | 'settings' | 'multiplayer';
+  activeModal: ModalType;
+  careerStats: CareerStats;
+  localMessages: RoomChatMessage[];
 
   // Multiplayer room state
   mpRoom: SanitizedRoomView | null;
@@ -53,7 +72,7 @@ interface GameStore {
   // Lifecycle & navigation
   hydrateFromStorage: () => void;
   setScreen: (screen: ScreenMode) => void;
-  setActiveModal: (modal: 'none' | 'rules' | 'settings' | 'multiplayer') => void;
+  setActiveModal: (modal: ModalType) => void;
   updateConfig: (partial: Partial<GameConfig>) => void;
   setMpInviteCode: (code: string | null) => void;
 
@@ -75,7 +94,7 @@ interface GameStore {
   returnTileOrSelectionToHand: (tileIds: string[], targetHandIndex?: number) => void;
   splitMeld: (meldId: string, splitIndex: number) => void;
   normalizeMeldById: (meldId: string) => void;
-  sortHand: (mode: 'color' | 'number') => void;
+  sortHand: (mode: 'color' | 'number' | 'smart') => void;
   undoStep: () => void;
   resetTurn: () => void;
   applySmartHint: () => void;
@@ -86,11 +105,13 @@ interface GameStore {
   stepAITurn: () => void;
   clearError: () => void;
 
-  // Multiplayer actions
+  // Multiplayer & Social actions
   createMultiplayerRoom: (playerName: string, maxPlayers: 2 | 3 | 4) => Promise<string | null>;
   joinMultiplayerRoom: (roomCode: string, playerName: string) => Promise<boolean>;
   renameMultiplayerPlayer: (playerName: string) => Promise<boolean>;
+  sendTableMessage: (text: string) => Promise<void>;
   startMultiplayerGame: () => Promise<void>;
+  restartMultiplayerGame: () => Promise<void>;
   refreshMultiplayerRoom: (roomCode?: string) => Promise<void>;
   leaveMultiplayerRoom: () => void;
 }
@@ -166,7 +187,6 @@ function loadConfigFromLocalStorage(): GameConfig {
   }
 }
 
-// Local BroadcastChannel + localStorage fallback helpers for Multiplayer Rooms
 function getLocalRoomMap(): Record<string, RoomRecord> {
   if (typeof window === 'undefined') return {};
   try {
@@ -213,8 +233,7 @@ function savePlayerToken(roomCode: string, token: string) {
 }
 
 /**
- * Converts a `SanitizedRoomView` (where the viewer is the active player or observing)
- * into a local working `GameState` so the exact same board UI works for both single-player and online rooms!
+ * Converts a `SanitizedRoomView` into a local working `GameState` so the exact same board UI works for both single-player and online rooms.
  */
 function buildWorkingGameStateFromRoomView(view: SanitizedRoomView): GameState | null {
   if (!view.gameState) return null;
@@ -228,7 +247,6 @@ function buildWorkingGameStateFromRoomView(view: SanitizedRoomView): GameState |
     score: p.score,
   }));
 
-  // Create dummy pool placeholders so pool.length matches poolCount for HUD display
   const dummyPool = Array.from({ length: gs.poolCount }, (_, idx) => ({
     id: `hidden-pool-${idx}`,
     color: 'black' as const,
@@ -269,6 +287,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   selectedTileIds: [],
   isAIThinking: false,
   activeModal: 'none',
+  careerStats: DEFAULT_CAREER_STATS,
+  localMessages: [],
   mpRoom: null,
   mpSecretToken: null,
   mpError: null,
@@ -277,11 +297,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
   hydrateFromStorage: () => {
     const savedConfig = loadConfigFromLocalStorage();
     const savedGame = loadGameFromLocalStorage();
+    const savedStats = loadCareerStats();
     soundFX.setEnabled(savedConfig.soundEnabled);
     set({
       hydrated: true,
       config: savedConfig,
       gameState: savedGame,
+      careerStats: savedStats,
     });
   },
 
@@ -296,7 +318,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     soundFX.setEnabled(nextConfig.soundEnabled);
     saveConfigToLocalStorage(nextConfig);
 
-    // If user customized playerName in settings, also sync to multiplayer room or local single-player game
     if (partial.playerName && partial.playerName.trim()) {
       const cleanName = partial.playerName.trim().slice(0, 20);
       if (get().mpRoom) {
@@ -343,6 +364,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       isAIThinking: false,
       activeModal: 'none',
       mpRoom: null,
+      localMessages: [],
     });
   },
 
@@ -516,7 +538,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return;
     }
 
-    // Apply hint onto working state with undo history so user can review or undo before committing
     const prevSnapshot = {
       hand: currentPlayer.hand.map((t) => ({ ...t })),
       table: gameState.table.map((m) => ({
@@ -577,10 +598,27 @@ export const useGameStore = create<GameStore>((set, get) => ({
         saveLocalRoomRecord(res.room);
         const nextView = sanitizeRoomForViewer(res.room, mpSecretToken, 'local-broadcast');
         soundFX.playCommitSuccess();
+        const nextGs = buildWorkingGameStateFromRoomView(nextView);
+        let nextStats = get().careerStats;
+        if (nextGs && nextGs.history[0]?.playerId === nextView.myPlayerId) {
+          nextStats = recordTurnPlayStats({
+            tilesPlayedCount: nextGs.history[0].tilesPlayedCount,
+            pointsPlayed: nextGs.history[0].pointsPlayed ?? 0,
+            brokeIce: Boolean(nextGs.history[0].brokeIce),
+          });
+        }
+        if (nextGs && nextGs.status === 'finished') {
+          const me = nextGs.players.find((p) => p.id === nextView.myPlayerId);
+          nextStats = recordGameEndStats({
+            won: nextGs.winnerId === nextView.myPlayerId,
+            finalScore: me?.score ?? 0,
+          });
+        }
         set({
           mpRoom: nextView,
-          gameState: buildWorkingGameStateFromRoomView(nextView),
+          gameState: nextGs,
           selectedTileIds: [],
+          careerStats: nextStats,
         });
         return true;
       } else {
@@ -610,10 +648,27 @@ export const useGameStore = create<GameStore>((set, get) => ({
               }));
             } else if (data.room) {
               soundFX.playCommitSuccess();
+              const nextGs = buildWorkingGameStateFromRoomView(data.room);
+              let nextStats = get().careerStats;
+              if (nextGs && nextGs.history[0]?.playerId === data.room.myPlayerId) {
+                nextStats = recordTurnPlayStats({
+                  tilesPlayedCount: nextGs.history[0].tilesPlayedCount,
+                  pointsPlayed: nextGs.history[0].pointsPlayed ?? 0,
+                  brokeIce: Boolean(nextGs.history[0].brokeIce),
+                });
+              }
+              if (nextGs && nextGs.status === 'finished') {
+                const me = nextGs.players.find((p) => p.id === data.room.myPlayerId);
+                nextStats = recordGameEndStats({
+                  won: nextGs.winnerId === data.room.myPlayerId,
+                  finalScore: me?.score ?? 0,
+                });
+              }
               set({
                 mpRoom: data.room,
-                gameState: buildWorkingGameStateFromRoomView(data.room),
+                gameState: nextGs,
                 selectedTileIds: [],
+                careerStats: nextStats,
               });
             }
           });
@@ -630,8 +685,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return false;
     }
 
+    const latestPlay = result.state.history[0];
+    let nextStats = recordTurnPlayStats({
+      tilesPlayedCount: latestPlay?.tilesPlayedCount ?? 0,
+      pointsPlayed: latestPlay?.pointsPlayed ?? 0,
+      brokeIce: Boolean(latestPlay?.brokeIce),
+    });
+
     if (result.state.status === 'finished') {
       soundFX.playVictory();
+      const human = result.state.players.find((p) => p.type === 'human');
+      nextStats = recordGameEndStats({
+        won: result.state.winnerId === human?.id,
+        finalScore: human?.score ?? 0,
+      });
     } else {
       soundFX.playCommitSuccess(wasUnbroken);
     }
@@ -640,6 +707,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({
       gameState: result.state,
       selectedTileIds: [],
+      careerStats: nextStats,
     });
     return true;
   },
@@ -702,8 +770,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
 
     const { state: nextState } = drawTileAndEndTurn(gameState);
+    let nextStats = get().careerStats;
     if (nextState.status === 'finished') {
       soundFX.playVictory();
+      const human = nextState.players.find((p) => p.type === 'human');
+      nextStats = recordGameEndStats({
+        won: nextState.winnerId === human?.id,
+        finalScore: human?.score ?? 0,
+      });
     } else {
       soundFX.playDrawTile();
     }
@@ -711,6 +785,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({
       gameState: nextState,
       selectedTileIds: [],
+      careerStats: nextStats,
     });
   },
 
@@ -722,18 +797,32 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (currentPlayer.type !== 'ai') return;
 
     const nextState = executeAITurn(gameState);
+    let nextStats = get().careerStats;
+
     if (nextState.status === 'finished') {
       soundFX.playVictory();
+      const human = nextState.players.find((p) => p.type === 'human');
+      nextStats = recordGameEndStats({
+        won: nextState.winnerId === human?.id,
+        finalScore: human?.score ?? 0,
+      });
     } else if (nextState.history[0]?.action === 'play') {
       soundFX.playCommitSuccess(nextState.history[0]?.brokeIce);
     } else {
       soundFX.playDrawTile();
     }
 
+    // If the turn just returned to the human player, play a subtle turn chime
+    const nextActive = nextState.players[nextState.currentPlayerIndex];
+    if (nextState.status === 'playing' && nextActive?.type === 'human') {
+      setTimeout(() => soundFX.playTurnStart(), 180);
+    }
+
     saveGameToLocalStorage(nextState);
     set({
       gameState: nextState,
       isAIThinking: false,
+      careerStats: nextStats,
     });
   },
 
@@ -748,9 +837,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  // Multiplayer room creation (auto-detects cloud Supabase or falls back to local cross-tab broadcast)
   createMultiplayerRoom: async (playerName, maxPlayers) => {
     set({ mpError: null });
+    if (typeof window !== 'undefined' && playerName.trim()) {
+      try {
+        window.localStorage.setItem('atelier_rummikub_mp_name_v2', playerName.trim());
+      } catch {}
+    }
+
     try {
       const checkRes = await fetch('/api/rooms');
       const checkJson = await checkRes.json();
@@ -803,6 +897,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           lastSeenAt: Date.now(),
         },
       ],
+      messages: [],
       gameState: null,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -989,6 +1084,85 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
   },
 
+  sendTableMessage: async (rawText) => {
+    const cleanText = rawText.trim().slice(0, 40);
+    if (!cleanText) return;
+    soundFX.playTileClick();
+
+    const { mpRoom, mpSecretToken, gameState } = get();
+    if (mpRoom && mpSecretToken) {
+      if (mpRoom.transportMode === 'local-broadcast') {
+        const map = getLocalRoomMap();
+        const record = map[mpRoom.roomCode];
+        if (!record) return;
+        const res = applyAuthoritativeRoomAction({
+          room: record,
+          secretToken: mpSecretToken,
+          expectedVersion: mpRoom.version,
+          action: { type: 'send_message', text: cleanText },
+        });
+        if (res.ok) {
+          saveLocalRoomRecord(res.room);
+          set({
+            mpRoom: sanitizeRoomForViewer(res.room, mpSecretToken, 'local-broadcast'),
+          });
+        }
+      } else {
+        try {
+          const res = await fetch('/api/rooms', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              op: 'action',
+              roomCode: mpRoom.roomCode,
+              secretToken: mpSecretToken,
+              expectedVersion: mpRoom.version,
+              action: { type: 'send_message', text: cleanText },
+            }),
+          });
+          const data = await res.json();
+          if (data.room) {
+            set({ mpRoom: data.room });
+          }
+        } catch {}
+      }
+      return;
+    }
+
+    // Single-player mode: show player's chat bubble and trigger a playful AI response
+    if (!gameState) return;
+    const human = gameState.players.find((p) => p.type === 'human') ?? gameState.players[0];
+    const myMsg: RoomChatMessage = {
+      id: `local-msg-${Date.now()}`,
+      playerId: human.id,
+      playerName: human.name,
+      text: cleanText,
+      timestamp: Date.now(),
+    };
+    set((s) => ({
+      localMessages: [myMsg, ...s.localMessages].slice(0, 10),
+    }));
+
+    const aiPlayers = gameState.players.filter((p) => p.type === 'ai');
+    if (aiPlayers.length > 0) {
+      const responder = aiPlayers[Math.floor(Math.random() * aiPlayers.length)];
+      const replyText =
+        AI_CHAT_REPLIES[Math.floor(Math.random() * AI_CHAT_REPLIES.length)];
+      setTimeout(() => {
+        const aiMsg: RoomChatMessage = {
+          id: `local-ai-msg-${Date.now()}`,
+          playerId: responder.id,
+          playerName: responder.name,
+          text: replyText,
+          timestamp: Date.now(),
+        };
+        set((s) => ({
+          localMessages: [aiMsg, ...s.localMessages].slice(0, 10),
+        }));
+      }, 900);
+    }
+  },
+
   startMultiplayerGame: async () => {
     const { mpRoom, mpSecretToken, config } = get();
     if (!mpRoom || !mpSecretToken) return;
@@ -1041,11 +1215,69 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
   },
 
+  restartMultiplayerGame: async () => {
+    const { mpRoom, mpSecretToken, config } = get();
+    if (!mpRoom || !mpSecretToken) {
+      get().startNewGame();
+      return;
+    }
+
+    if (mpRoom.transportMode === 'local-broadcast') {
+      const map = getLocalRoomMap();
+      const record = map[mpRoom.roomCode];
+      if (!record) return;
+      const res = applyAuthoritativeRoomAction({
+        room: record,
+        secretToken: mpSecretToken,
+        expectedVersion: mpRoom.version,
+        action: { type: 'restart_game', fillAiDifficulty: config.aiDifficulty },
+      });
+      if (!res.ok) return;
+      saveLocalRoomRecord(res.room);
+      const view = sanitizeRoomForViewer(res.room, mpSecretToken, 'local-broadcast');
+      soundFX.playTilePlace();
+      set({
+        mpRoom: view,
+        gameState: buildWorkingGameStateFromRoomView(view),
+        screen: 'game',
+        selectedTileIds: [],
+      });
+    } else {
+      try {
+        const res = await fetch('/api/rooms', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            op: 'action',
+            roomCode: mpRoom.roomCode,
+            secretToken: mpSecretToken,
+            expectedVersion: mpRoom.version,
+            action: { type: 'restart_game', fillAiDifficulty: config.aiDifficulty },
+          }),
+        });
+        const data = await res.json();
+        if (data.room) {
+          soundFX.playTilePlace();
+          set({
+            mpRoom: data.room,
+            gameState: buildWorkingGameStateFromRoomView(data.room),
+            screen: 'game',
+            selectedTileIds: [],
+          });
+        }
+      } catch {}
+    }
+  },
+
   refreshMultiplayerRoom: async (codeOverride) => {
     const { mpRoom, mpSecretToken, gameState } = get();
     const roomCode = codeOverride ?? mpRoom?.roomCode;
     const token = mpSecretToken ?? (roomCode ? getSavedPlayerToken(roomCode) : null);
     if (!roomCode) return;
+
+    const wasMyTurnBefore =
+      Boolean(gameState && mpRoom?.myPlayerId) &&
+      gameState?.players[gameState.currentPlayerIndex]?.id === mpRoom?.myPlayerId;
 
     if (!mpRoom || mpRoom.transportMode === 'local-broadcast') {
       const map = getLocalRoomMap();
@@ -1054,6 +1286,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const view = sanitizeRoomForViewer(record, token, 'local-broadcast');
         const nextGs = buildWorkingGameStateFromRoomView(view);
         const versionChanged = !mpRoom || view.version !== mpRoom.version;
+        const isMyTurnNow =
+          Boolean(nextGs && view.myPlayerId) &&
+          nextGs?.players[nextGs.currentPlayerIndex]?.id === view.myPlayerId;
+
+        if (versionChanged && !wasMyTurnBefore && isMyTurnNow && nextGs?.status === 'playing') {
+          soundFX.playTurnStart();
+        }
+
         set({
           mpRoom: view,
           mpSecretToken: token,
@@ -1072,6 +1312,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
       if (data.room) {
         const nextGs = buildWorkingGameStateFromRoomView(data.room);
         const versionChanged = !mpRoom || data.room.version !== mpRoom.version;
+        const isMyTurnNow =
+          Boolean(nextGs && data.room.myPlayerId) &&
+          nextGs?.players[nextGs.currentPlayerIndex]?.id === data.room.myPlayerId;
+
+        if (versionChanged && !wasMyTurnBefore && isMyTurnNow && nextGs?.status === 'playing') {
+          soundFX.playTurnStart();
+        }
+
         set({
           mpRoom: data.room,
           mpSecretToken: token,

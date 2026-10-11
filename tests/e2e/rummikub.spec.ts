@@ -242,8 +242,16 @@ test.describe('Atelier Rummikub End-to-End Browser Verification', () => {
     await page.reload();
     await page.getByTestId('btn-resume-game').click();
 
-    // Use Smart Hint to stage the winning meld onto the table and submit!
+    // Verify 106-tile Tracker Modal opens and closes
+    await page.getByTestId('btn-open-tracker').click();
+    await expect(page.getByTestId('modal-tracker')).toBeVisible();
+    await page.getByTestId('btn-close-tracker').click();
+
+    // Use Smart Hint to stage the winning meld onto the table and verify trajectory animation + replay banner!
     await page.getByTestId('btn-smart-hint').click();
+    await expect(page.getByTestId('tile-flight-overlay')).toBeVisible();
+    await expect(page.getByTestId('hint-breakdown-banner')).toBeVisible();
+    await expect(page.getByTestId('btn-replay-hint-anim')).toBeVisible();
     await expect(page.getByTestId('rack-tile-count')).toContainText('0 张');
     await page.getByTestId('btn-submit-turn').click();
 

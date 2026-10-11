@@ -2,6 +2,7 @@
 
 import React, { useEffect } from 'react';
 import {
+  Award,
   BookOpen,
   Bot,
   Play,
@@ -42,6 +43,7 @@ export default function HomePage() {
     config,
     gameState,
     activeModal,
+    careerStats,
     mpRoom,
     mpError,
     mpInviteCode,
@@ -71,7 +73,6 @@ export default function HomePage() {
     const roomParam = params.get('room');
     if (roomParam && roomParam.trim().length >= 4) {
       const code = roomParam.trim().toUpperCase();
-      // Check if we already have a reconnect token for this room
       let hasToken = false;
       let savedName = '受邀玩家';
       try {
@@ -85,7 +86,6 @@ export default function HomePage() {
       if (hasToken) {
         joinMultiplayerRoom(code, savedName);
       } else {
-        // Open multiplayer lobby with invite code pre-filled so guest can set their own name first
         setMpInviteCode(code);
         setScreen('multiplayer');
       }
@@ -144,6 +144,10 @@ export default function HomePage() {
   }
 
   const hasSavedGame = Boolean(gameState && gameState.status === 'playing');
+  const winRate =
+    careerStats.gamesPlayed > 0
+      ? Math.round((careerStats.wins / careerStats.gamesPlayed) * 100)
+      : 0;
 
   return (
     <main
@@ -215,7 +219,7 @@ export default function HomePage() {
             <div className="flex items-center justify-between text-xs text-stone-400">
               <span>牌组示例预览</span>
               <span className="text-emerald-400 font-semibold">
-                ● 支持鼠标拖拽与触屏点击双模式
+                ● 支持轨迹动画演示与全牌谱记牌器
               </span>
             </div>
 
@@ -258,33 +262,73 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Feature Highlights */}
-          <div className="grid grid-cols-3 gap-3 pt-1">
-            <div className="p-3 rounded-2xl bg-black/30 border border-white/10">
-              <Bot className="w-4 h-4 text-[#D4AF37] mb-1" />
-              <div className="text-xs font-bold text-stone-200">双难度智能 AI</div>
-              <div className="text-[11px] text-stone-400">
-                支持桌面拆牌重组与公平博弈
+          {/* Career Stats Strip */}
+          {careerStats.gamesPlayed > 0 || careerStats.totalTilesPlayed > 0 ? (
+            <div
+              data-testid="career-stats-card"
+              className="p-3.5 sm:p-4 rounded-2xl bg-black/35 border border-[#D4AF37]/30 flex flex-wrap items-center justify-between gap-3"
+            >
+              <div className="flex items-center gap-2">
+                <Award className="w-5 h-5 text-[#D4AF37]" />
+                <span className="text-xs sm:text-sm font-bold text-[#E6C65A]">
+                  生涯战绩统计
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-4 text-xs">
+                <div>
+                  <span className="text-stone-400">胜率：</span>
+                  <strong className="text-emerald-300 tabular-nums">
+                    {winRate}% ({careerStats.wins}/{careerStats.gamesPlayed})
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-stone-400">单回最高：</span>
+                  <strong className="text-[#E6C65A] tabular-nums">
+                    {careerStats.bestTurnScore}分
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-stone-400">累计出牌：</span>
+                  <strong className="text-stone-100 tabular-nums">
+                    {careerStats.totalTilesPlayed}张
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-stone-400">破冰次数：</span>
+                  <strong className="text-sky-300 tabular-nums">
+                    {careerStats.icebreakersCount}次
+                  </strong>
+                </div>
               </div>
             </div>
-            <div className="p-3 rounded-2xl bg-black/30 border border-white/10">
-              <ShieldCheck className="w-4 h-4 text-[#D4AF37] mb-1" />
-              <div className="text-xs font-bold text-stone-200">事务级规则校验</div>
-              <div className="text-[11px] text-stone-400">
-                支持随时撤销、重置与实时计分
+          ) : (
+            <div className="grid grid-cols-3 gap-3 pt-1">
+              <div className="p-3 rounded-2xl bg-black/30 border border-white/10">
+                <Bot className="w-4 h-4 text-[#D4AF37] mb-1" />
+                <div className="text-xs font-bold text-stone-200">双难度智能 AI</div>
+                <div className="text-[11px] text-stone-400">
+                  支持桌面拆牌重组与公平博弈
+                </div>
+              </div>
+              <div className="p-3 rounded-2xl bg-black/30 border border-white/10">
+                <ShieldCheck className="w-4 h-4 text-[#D4AF37] mb-1" />
+                <div className="text-xs font-bold text-stone-200">轨迹动画与记牌器</div>
+                <div className="text-[11px] text-stone-400">
+                  智能提示飞牌轨迹与 106 张记牌
+                </div>
+              </div>
+              <div className="p-3 rounded-2xl bg-black/30 border border-white/10">
+                <Trophy className="w-4 h-4 text-[#D4AF37] mb-1" />
+                <div className="text-xs font-bold text-stone-200">云端好友联机</div>
+                <div className="text-[11px] text-stone-400">
+                  支持同房再来一局与实时快捷互动
+                </div>
               </div>
             </div>
-            <div className="p-3 rounded-2xl bg-black/30 border border-white/10">
-              <Trophy className="w-4 h-4 text-[#D4AF37] mb-1" />
-              <div className="text-xs font-bold text-stone-200">自动本地存档</div>
-              <div className="text-[11px] text-stone-400">
-                刷新浏览器可无缝恢复未完对局
-              </div>
-            </div>
-          </div>
+          )}
         </div>
 
-        {/* Right Column: Quick Start Card (first on mobile so phone users can start immediately) */}
+        {/* Right Column: Quick Start Card */}
         <div className="lg:col-span-5 order-1 lg:order-2">
           <div className="p-5 sm:p-7 rounded-3xl bg-[#0D1C17]/95 border border-[#C8A464]/35 shadow-2xl space-y-4 sm:space-y-5">
             <div>
